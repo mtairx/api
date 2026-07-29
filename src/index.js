@@ -56,7 +56,7 @@ export default {
       "accept": "*/*",
       "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
       "auth-key": "appxapi",
-      "authorization": env.AUTH_TOKEN || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjE0ODQ1NTU2IiwidGltZXN0YW1wIjoxNzg0NzMyODMxLCJpdl92ZXIiOjgsInNlc3Npb24iOiJleUowZVhBaU9pSktWMVFpTENKaGJHY2lPaUpJVXpJMU5pSjkuZXlKcFpDSTZJakUwT0RRMU5UVTJJaXdpWlcxaGFXd2lPaUpUVFVWWVJrOVVRRWROUVVsTUxrTlBUU0lzSW01aGJXVWlPaUp6YldWNElpd2lkR1Z1WVc1MFZIbHdaU0k2SW5WelpYSWlMQ0owWlc1aGJuUk9ZVzFsSWpvaWNtOTZaMkZ5WDJSaUlpd2lkR1Z1WVc1MFNXUWlPaUlpTENKa2FYTndiM05oWW14bElqcG1ZV3h6WlgwLmlnZUlFRDU3dzhyN1V1bjZublNzck8wOHFLMklPaVBpbElURzZaUHhsX0UifQ.rV-aUwtZ3nk0Kujy2zaaAZXI-L05-1wwOWXanIZq4IU",
+      "authorization": env.AUTH_TOKEN || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODUzMzI3NDAsIml2X3ZlciI6NSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.sE0sbhbT2pxyDX6aCBDfv3a0bwW-j9cG2Ev0bqb3wog",
       "client-service": "Appx",
       "device-type": "origin",
       "referer": "https://rojgarwithankit.co.in/",
