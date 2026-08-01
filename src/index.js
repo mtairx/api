@@ -1,69 +1,148 @@
-export default {
-  async fetch(request) {
-    try {
-      const url = new URL(request.url);
+// index.js
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const app = express();
+const port = 3000;
 
-      const token = url.searchParams.get("token");
-      const course_id = url.searchParams.get("course_id");
-      const video_id = url.searchParams.get("video_id");
+// Middleware
+app.use(cors());
+app.use(express.json());
 
-      if (!token || !course_id || !video_id) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "Missing parameters"
-        }), { status: 400 });
-      }
-
-      const targetUrl = `https://rozgarapinew.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0`;
-
-      const response = await fetch(targetUrl, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Accept": "application/json",
-          "User-Agent": "Mozilla/5.0",
-
-          // 🔥 IMPORTANT HEADERS
-          "origin": "https://teachx.in",
-          "referer": "https://teachx.in/",
-          "app-version": "1.0.0",
-          "platform": "web"
-        }
-      });
-
-      // 👇 read as text first
-      const text = await response.text();
-
-      // try to parse JSON safely
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "API returned non-JSON (likely blocked)",
-          preview: text.slice(0, 200) // show first part
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-
-      return new Response(JSON.stringify({
-        success: true,
-        data: data
-      }), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*"
-        }
-      });
-
-    } catch (err) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: err.message
-      }), { status: 500 });
-    }
-  }
+// Constants
+const API_BASE = "https://rozgarapinew.teachx.in/get";
+const VIDEO_API = "https://rwa.video-edustream.indevs.in";
+const HEADERS = {
+  "Client-Service": "Appx",
+  "Auth-Key": "appxapi",
+  "source": "website"
 };
+
+// Store tokens in memory (use Redis/DB for production)
+const userTokens = {};
+
+// Generate device ID
+function generateDeviceId() {
+  return "dev_" + Math.random().toString(36).substr(2, 10);
+}
+
+// Routes
+
+// 📲 Send OTP
+app.post('/send-otp', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    const response = await axios.get(`${API_BASE}/sendotp?phone=${phone}`, {
+      headers: HEADERS
+    });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ✅ Verify OTP
+app.post('/verify-otp', async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+    const deviceId = generateDeviceId();
+    
+    const response = await axios.get(
+      `${API_BASE}/otpverify?useremail=${phone}&otp=${otp}&device_id=${deviceId}`,
+      { headers: HEADERS }
+    );
+    
+    if (response.data.user && response.data.user.token) {
+      const token = response.data.user.token;
+      userTokens[phone] = token;
+      
+      // Return token in both places to match original system
+      res.json({
+        token: token,
+        message: "Login successful"
+      });
+    } else {
+      res.status(401).json({ error: "Invalid OTP" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🎥 Fetch Video URL
+app.get('/fetch-video-url', async (req, res) => {
+  try {
+    const { phone, courseId, videoId } = req.query;
+    
+    if (!userTokens[phone]) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    
+    const token = userTokens[phone];
+    
+    // Use existing video API but extract just the video URL
+    const response = await axios.get(
+      `${VIDEO_API}/?endpoint=video-details&token=${token}&userid=517077&course_id=${courseId}&video_id=${videoId}`,
+      { headers: HEADERS }
+    );
+    
+    // Extract video URL from response
+    const videoUrl = response.data?.video_url || response.data?.url || response.data?.videoLink;
+    
+    if (videoUrl) {
+      res.json({ video_url: videoUrl });
+    } else {
+      res.status(404).json({ error: "Video URL not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🎥 Fetch Full Video Details
+app.get('/fetch-video-details', async (req, res) => {
+  try {
+    const { phone, courseId, videoId } = req.query;
+    
+    if (!userTokens[phone]) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    
+    const token = userTokens[phone];
+    
+    // Fetch full video details
+    const response = await axios.get(
+      `${VIDEO_API}/?endpoint=video-details&token=${token}&userid=517077&course_id=${courseId}&video_id=${videoId}`,
+      { headers: HEADERS }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔁 Token Refresh Endpoint
+app.post('/refresh-token', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    
+    if (!userTokens[phone]) {
+      return res.status(401).json({ error: "No active session" });
+    }
+    
+    // Simulate token refresh (replace with actual refresh API)
+    const newToken = userTokens[phone]; // In real implementation, get new token from server
+    
+    // Update stored token
+    userTokens[phone] = newToken;
+    
+    res.json({ new_token: newToken });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
