@@ -11,7 +11,6 @@ app.use(express.json());
 
 // Constants
 const API_BASE = "https://rozgarapinew.teachx.in/get";
-const VIDEO_API = "https://rwa.video-edustream.indevs.in";
 const HEADERS = {
   "Client-Service": "Appx",
   "Auth-Key": "appxapi",
@@ -25,8 +24,6 @@ const userTokens = {};
 function generateDeviceId() {
   return "dev_" + Math.random().toString(36).substr(2, 10);
 }
-
-// Routes
 
 // 📲 Send OTP
 app.post('/send-otp', async (req, res) => {
@@ -69,59 +66,6 @@ app.post('/verify-otp', async (req, res) => {
   }
 });
 
-// 🎥 Fetch Video URL
-app.get('/fetch-video-url', async (req, res) => {
-  try {
-    const { phone, courseId, videoId } = req.query;
-    
-    if (!userTokens[phone]) {
-      return res.status(401).json({ error: "Not logged in" });
-    }
-    
-    const token = userTokens[phone];
-    
-    // Use existing video API but extract just the video URL
-    const response = await axios.get(
-      `${VIDEO_API}/?endpoint=video-details&token=${token}&userid=517077&course_id=${courseId}&video_id=${videoId}`,
-      { headers: HEADERS }
-    );
-    
-    // Extract video URL from response
-    const videoUrl = response.data?.video_url || response.data?.url || response.data?.videoLink;
-    
-    if (videoUrl) {
-      res.json({ video_url: videoUrl });
-    } else {
-      res.status(404).json({ error: "Video URL not found" });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🎥 Fetch Full Video Details
-app.get('/fetch-video-details', async (req, res) => {
-  try {
-    const { phone, courseId, videoId } = req.query;
-    
-    if (!userTokens[phone]) {
-      return res.status(401).json({ error: "Not logged in" });
-    }
-    
-    const token = userTokens[phone];
-    
-    // Fetch full video details
-    const response = await axios.get(
-      `${VIDEO_API}/?endpoint=video-details&token=${token}&userid=517077&course_id=${courseId}&video_id=${videoId}`,
-      { headers: HEADERS }
-    );
-    
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // 🔁 Token Refresh Endpoint
 app.post('/refresh-token', async (req, res) => {
   try {
@@ -138,6 +82,78 @@ app.post('/refresh-token', async (req, res) => {
     userTokens[phone] = newToken;
     
     res.json({ new_token: newToken });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔄 List Courses
+app.get('/list-courses', async (req, res) => {
+  try {
+    const { phone } = req.query;
+    
+    if (!userTokens[phone]) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    
+    const token = userTokens[phone];
+    
+    // Properly format the token in Authorization header
+    const response = await axios.get(
+      `${API_BASE}/courses`,
+      { 
+        headers: {
+          ...HEADERS,
+          "Authorization": `Bearer ${token}`
+        }
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔄 Get Course Details
+app.get('/get-course-details', async (req, res) => {
+  try {
+    const { phone, courseId } = req.query;
+    
+    if (!userTokens[phone]) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    
+    const token = userTokens[phone];
+    
+    // Properly format the token in Authorization header
+    const response = await axios.get(
+      `${API_BASE}/course-details?course_id=${courseId}`,
+      { 
+        headers: {
+          ...HEADERS,
+          "Authorization": `Bearer ${token}`
+        }
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔄 Logout
+app.post('/logout', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    
+    if (userTokens[phone]) {
+      delete userTokens[phone];
+      res.json({ message: "Logged out successfully" });
+    } else {
+      res.status(401).json({ error: "Not logged in" });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
