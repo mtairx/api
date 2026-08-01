@@ -1,10 +1,10 @@
-// index.js - Cloudflare Worker
+// index.js - Cloudflare Worker with enhanced debugging and strategies
 
 // Configuration
 const API_BASE_URL = 'https://rozgarapinew.teachx.in';
 const BEARER_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODU0MTAyNTIsIml2X3ZlciI6OSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.yAYNEfdfdvE4jZXdr4582bkn3P9B4ss0UnjLO0DwiQ8';
 
-// CORS headers for all responses
+// CORS headers
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -12,51 +12,21 @@ const corsHeaders = {
     'Access-Control-Max-Age': '86400'
 };
 
-// Helper function to extract video URL from various response formats
-function extractVideoUrl(data) {
+// Enhanced video URL extraction with more patterns
+function extractVideoUrl(data, debug = false) {
     if (!data) return null;
     
-    // Try all possible paths
-    const paths = [
-        'video_url',
-        'url',
-        'data.video_url',
-        'data.url',
-        'data.data.video_url',
-        'data.data.url',
-        'videoLink',
-        'video.url',
-        'VideoURL',
-        'URL',
-        'video',
-        'content.video_url',
-        'content.url',
-        'file_url',
-        'fileUrl',
-        'stream_url',
-        'streamUrl',
-        'media_url',
-        'mediaUrl',
-        'source_url',
-        'sourceUrl',
-        'play_url',
-        'playUrl',
-        'result',
-        'response',
-        'link',
-        'src',
-        'source',
-        'href'
-    ];
+    // Log for debugging
+    if (debug) console.log('🔍 Searching for video URL in:', JSON.stringify(data).substring(0, 500));
     
     // If data is a string, try to parse it
     if (typeof data === 'string') {
         try {
             const parsed = JSON.parse(data);
-            return extractVideoUrl(parsed);
+            return extractVideoUrl(parsed, debug);
         } catch (e) {
-            // If it's a URL string
-            if (data.startsWith('http')) {
+            // Check if it's a direct URL
+            if (data.startsWith('http') && (data.includes('.mp4') || data.includes('m3u8') || data.includes('video'))) {
                 return data;
             }
             return null;
@@ -66,7 +36,7 @@ function extractVideoUrl(data) {
     // If data is an array, check each item
     if (Array.isArray(data)) {
         for (const item of data) {
-            const result = extractVideoUrl(item);
+            const result = extractVideoUrl(item, debug);
             if (result) return result;
         }
         return null;
@@ -74,8 +44,40 @@ function extractVideoUrl(data) {
     
     // If data is an object, search through it
     if (typeof data === 'object' && data !== null) {
-        // Check direct paths first
-        for (const path of paths) {
+        // Check common paths first
+        const commonPaths = [
+            'video_url', 'url', 'videoLink', 'VideoURL', 'URL',
+            'video', 'source', 'src', 'href', 'link', 'file_url',
+            'fileUrl', 'stream_url', 'streamUrl', 'media_url', 'mediaUrl',
+            'play_url', 'playUrl', 'content', 'data', 'result', 'response'
+        ];
+        
+        // Check for direct keys
+        for (const key of commonPaths) {
+            if (data[key] !== undefined && data[key] !== null) {
+                const value = data[key];
+                if (typeof value === 'string' && value.startsWith('http')) {
+                    if (value.includes('.mp4') || value.includes('m3u8') || value.includes('video') || value.includes('stream')) {
+                        if (debug) console.log(`✅ Found video URL in key: ${key}`);
+                        return value;
+                    }
+                }
+                // Recursively check nested objects
+                if (typeof value === 'object') {
+                    const result = extractVideoUrl(value, debug);
+                    if (result) return result;
+                }
+            }
+        }
+        
+        // Check nested paths with dot notation
+        const nestedPaths = [
+            'data.video_url', 'data.url', 'data.video', 'data.data.video_url',
+            'result.video_url', 'result.url', 'response.video_url',
+            'content.video_url', 'content.url', 'video.url', 'video.source'
+        ];
+        
+        for (const path of nestedPaths) {
             const parts = path.split('.');
             let value = data;
             let found = true;
@@ -89,263 +91,362 @@ function extractVideoUrl(data) {
                 }
             }
             
-            if (found && value && typeof value === 'string' && value.startsWith('http')) {
-                // Check if it's a video URL
-                const videoExtensions = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', '.mkv', 'video', 'stream', 'play'];
-                if (videoExtensions.some(ext => value.toLowerCase().includes(ext))) {
-                    return value;
-                }
+            if (found && typeof value === 'string' && value.startsWith('http')) {
+                if (debug) console.log(`✅ Found video URL in nested path: ${path}`);
+                return value;
             }
         }
         
-        // Recursively search all values
-        for (const key of Object.keys(data)) {
-            const value = data[key];
-            if (typeof value === 'object' && value !== null) {
-                const result = extractVideoUrl(value);
-                if (result) return result;
-            } else if (typeof value === 'string' && value.startsWith('http')) {
-                const videoExtensions = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', '.mkv', 'video', 'stream', 'play'];
-                if (videoExtensions.some(ext => value.toLowerCase().includes(ext))) {
-                    return value;
+        // Deep recursive search for any URL
+        function deepSearch(obj, path = '') {
+            if (!obj || typeof obj !== 'object') return null;
+            
+            for (const key of Object.keys(obj)) {
+                const value = obj[key];
+                const currentPath = path ? `${path}.${key}` : key;
+                
+                if (typeof value === 'string' && value.startsWith('http')) {
+                    // Check if it looks like a video URL
+                    const videoIndicators = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', 'video', 'stream', 'play', 'media'];
+                    if (videoIndicators.some(ind => value.toLowerCase().includes(ind))) {
+                        if (debug) console.log(`✅ Found video URL at path: ${currentPath}`);
+                        return value;
+                    }
+                    // Also return any URL if we can't find a better one
+                    if (!videoUrl && value.startsWith('http')) {
+                        videoUrl = value;
+                    }
+                } else if (typeof value === 'object' && value !== null) {
+                    const result = deepSearch(value, currentPath);
+                    if (result) return result;
                 }
             }
+            return null;
         }
+        
+        let videoUrl = null;
+        const result = deepSearch(data);
+        if (result) return result;
     }
     
     return null;
 }
 
-// Helper to create response
-function createResponse(data, status = 200) {
-    return new Response(JSON.stringify(data), {
-        status: status,
-        headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
+// Enhanced fetch function with more details
+async function fetchWithDetails(url, options = {}) {
+    const startTime = Date.now();
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                ...options.headers
+            }
+        });
+        
+        const duration = Date.now() - startTime;
+        const contentType = response.headers.get('content-type') || '';
+        let data = null;
+        
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                data = { raw: text };
+            }
         }
-    });
+        
+        return {
+            ok: response.ok,
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries(response.headers),
+            data,
+            duration,
+            url
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            error: error.message,
+            duration: Date.now() - startTime,
+            url
+        };
+    }
 }
 
-// Helper for error responses
-function errorResponse(message, status = 400, details = null) {
-    return createResponse({
-        success: false,
-        message: message,
-        error: details,
-        timestamp: new Date().toISOString()
-    }, status);
-}
-
-// Helper for success responses
-function successResponse(data, meta = {}) {
-    return createResponse({
-        success: true,
-        data: data,
-        ...meta,
-        timestamp: new Date().toISOString()
-    });
-}
-
-// Main fetch function with multiple strategies
-async function fetchWithStrategies(course_id, video_id) {
-    const strategies = [
-        // Strategy 1: Bearer token with all params
-        async () => {
-            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-            const response = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${BEARER_TOKEN}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const videoUrl = extractVideoUrl(data);
-                return { data, videoUrl, strategy: 'bearer_token' };
-            }
-            throw new Error(`Status: ${response.status}`);
-        },
-        
-        // Strategy 2: No token
-        async () => {
-            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-            const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const videoUrl = extractVideoUrl(data);
-                return { data, videoUrl, strategy: 'no_token' };
-            }
-            throw new Error(`Status: ${response.status}`);
-        },
-        
-        // Strategy 3: Alternative URL structure
-        async () => {
-            const altUrls = [
-                `https://rozgarapinew.teachx.in/api/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
-                `https://rozgarapinew.teachx.in/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
-                `https://api.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`
-            ];
-            
-            for (const url of altUrls) {
-                try {
-                    const response = await fetch(url, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        const videoUrl = extractVideoUrl(data);
-                        if (videoUrl) {
-                            return { data, videoUrl, strategy: `alternative_url` };
-                        }
-                    }
-                } catch (e) {
-                    continue;
-                }
-            }
-            throw new Error('All alternative URLs failed');
-        },
-        
-        // Strategy 4: Different parameter combinations
-        async () => {
-            const paramVariations = [
-                `course_id=${course_id}&video_id=${video_id}&ytflag=1`,
-                `course_id=${course_id}&video_id=${video_id}&folder_wise_course=1`,
-                `course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=1`,
-                `course_id=${course_id}&video_id=${video_id}&ytflag=1&folder_wise_course=0`,
-                `course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=1`
-            ];
-            
-            for (const params of paramVariations) {
-                try {
-                    const url = `${API_BASE_URL}/get/fetchVideoDetailsById?${params}`;
-                    const response = await fetch(url, {
-                        headers: {
-                            'Authorization': `Bearer ${BEARER_TOKEN}`,
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        const videoUrl = extractVideoUrl(data);
-                        if (videoUrl) {
-                            return { data, videoUrl, strategy: `parameter_variation` };
-                        }
-                    }
-                } catch (e) {
-                    continue;
-                }
-            }
-            throw new Error('All parameter variations failed');
-        },
-        
-        // Strategy 5: POST method
-        async () => {
-            const url = `${API_BASE_URL}/get/fetchVideoDetailsById`;
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${BEARER_TOKEN}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    course_id: parseInt(course_id),
-                    video_id: parseInt(video_id),
-                    ytflag: 0,
-                    folder_wise_course: 0,
-                    lc_app_api_url: ''
-                })
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const videoUrl = extractVideoUrl(data);
-                return { data, videoUrl, strategy: 'post_method' };
-            }
-            throw new Error(`Status: ${response.status}`);
-        },
-        
-        // Strategy 6: Try with different base URLs
-        async () => {
-            const baseUrls = [
-                'https://rozgarapinew.teachx.in',
-                'https://rozgarapi.teachx.in',
-                'https://api.teachx.in'
-            ];
-            
-            for (const baseUrl of baseUrls) {
-                try {
-                    const url = `${baseUrl}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-                    const response = await fetch(url, {
-                        headers: {
-                            'Authorization': `Bearer ${BEARER_TOKEN}`,
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        }
-                    });
-                    if (response.ok) {
-                        const data = await response.json();
-                        const videoUrl = extractVideoUrl(data);
-                        if (videoUrl) {
-                            return { data, videoUrl, strategy: `different_base_url` };
-                        }
-                    }
-                } catch (e) {
-                    continue;
-                }
-            }
-            throw new Error('All base URLs failed');
-        },
-        
-        // Strategy 7: Try without any parameters (just raw)
-        async () => {
-            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`;
-            const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const videoUrl = extractVideoUrl(data);
-                return { data, videoUrl, strategy: 'minimal_params' };
-            }
-            throw new Error(`Status: ${response.status}`);
-        }
-    ];
+// Main fetch function with enhanced strategies
+async function fetchWithStrategies(course_id, video_id, debug = false) {
+    const results = [];
+    let videoUrl = null;
+    let fullData = null;
+    let usedStrategy = null;
     
-    // Try each strategy
-    for (const strategy of strategies) {
+    // Strategy 1: Bearer token with standard params
+    if (debug) console.log('🔄 Strategy 1: Bearer token with standard params');
+    try {
+        const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+        const result = await fetchWithDetails(url, {
+            headers: {
+                'Authorization': `Bearer ${BEARER_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        results.push({ strategy: 'bearer_token', ...result });
+        
+        if (result.ok && result.data) {
+            const urlFound = extractVideoUrl(result.data, debug);
+            if (urlFound) {
+                videoUrl = urlFound;
+                fullData = result.data;
+                usedStrategy = 'bearer_token';
+                if (debug) console.log(`✅ Found video URL with bearer token: ${videoUrl}`);
+            }
+        }
+    } catch (error) {
+        if (debug) console.log(`❌ Strategy 1 failed: ${error.message}`);
+    }
+    
+    // Strategy 2: No token
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 2: No token');
         try {
-            const result = await strategy();
-            if (result.videoUrl) {
-                return {
-                    ...result,
-                    success: true
-                };
+            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+            const result = await fetchWithDetails(url, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            results.push({ strategy: 'no_token', ...result });
+            
+            if (result.ok && result.data) {
+                const urlFound = extractVideoUrl(result.data, debug);
+                if (urlFound) {
+                    videoUrl = urlFound;
+                    fullData = result.data;
+                    usedStrategy = 'no_token';
+                    if (debug) console.log(`✅ Found video URL without token: ${videoUrl}`);
+                }
             }
         } catch (error) {
-            console.log(`Strategy failed: ${error.message}`);
-            continue;
+            if (debug) console.log(`❌ Strategy 2 failed: ${error.message}`);
         }
     }
     
+    // Strategy 3: Different parameter combinations
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 3: Different parameter combinations');
+        const variations = [
+            { ytflag: 1, folder_wise_course: 0 },
+            { ytflag: 0, folder_wise_course: 1 },
+            { ytflag: 1, folder_wise_course: 1 },
+            { ytflag: 0, folder_wise_course: 0, lc_app_api_url: '1' }
+        ];
+        
+        for (const params of variations) {
+            try {
+                const paramString = new URLSearchParams({
+                    course_id,
+                    video_id,
+                    ...params
+                }).toString();
+                const url = `${API_BASE_URL}/get/fetchVideoDetailsById?${paramString}`;
+                const result = await fetchWithDetails(url, {
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                results.push({ strategy: `params_${JSON.stringify(params)}`, ...result });
+                
+                if (result.ok && result.data) {
+                    const urlFound = extractVideoUrl(result.data, debug);
+                    if (urlFound) {
+                        videoUrl = urlFound;
+                        fullData = result.data;
+                        usedStrategy = `parameter_variation_${JSON.stringify(params)}`;
+                        if (debug) console.log(`✅ Found video URL with params: ${videoUrl}`);
+                        break;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    // Strategy 4: Alternative API endpoints
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 4: Alternative API endpoints');
+        const endpoints = [
+            '/api/get/fetchVideoDetailsById',
+            '/fetchVideoDetailsById',
+            '/get/videoDetails',
+            '/api/video/details',
+            '/video/details'
+        ];
+        
+        for (const endpoint of endpoints) {
+            try {
+                const url = `${API_BASE_URL}${endpoint}?course_id=${course_id}&video_id=${video_id}`;
+                const result = await fetchWithDetails(url, {
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                results.push({ strategy: `endpoint_${endpoint}`, ...result });
+                
+                if (result.ok && result.data) {
+                    const urlFound = extractVideoUrl(result.data, debug);
+                    if (urlFound) {
+                        videoUrl = urlFound;
+                        fullData = result.data;
+                        usedStrategy = `alternative_endpoint_${endpoint}`;
+                        if (debug) console.log(`✅ Found video URL with alternative endpoint: ${videoUrl}`);
+                        break;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    // Strategy 5: POST method with different body formats
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 5: POST method');
+        const bodyFormats = [
+            { course_id: parseInt(course_id), video_id: parseInt(video_id), ytflag: 0, folder_wise_course: 0 },
+            { course_id: course_id, video_id: video_id, ytflag: '0', folder_wise_course: '0' },
+            { course_id: parseInt(course_id), video_id: parseInt(video_id) },
+            { id: parseInt(course_id), video: parseInt(video_id) }
+        ];
+        
+        for (const body of bodyFormats) {
+            try {
+                const url = `${API_BASE_URL}/get/fetchVideoDetailsById`;
+                const result = await fetchWithDetails(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                results.push({ strategy: `post_${JSON.stringify(body)}`, ...result });
+                
+                if (result.ok && result.data) {
+                    const urlFound = extractVideoUrl(result.data, debug);
+                    if (urlFound) {
+                        videoUrl = urlFound;
+                        fullData = result.data;
+                        usedStrategy = `post_method_${JSON.stringify(body)}`;
+                        if (debug) console.log(`✅ Found video URL with POST: ${videoUrl}`);
+                        break;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    // Strategy 6: Try without course_id and video_id as query, use path instead
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 6: Path-based URL');
+        const pathFormats = [
+            `/video/${video_id}`,
+            `/course/${course_id}/video/${video_id}`,
+            `/api/video/${video_id}`,
+            `/get/video/${video_id}`
+        ];
+        
+        for (const path of pathFormats) {
+            try {
+                const url = `${API_BASE_URL}${path}`;
+                const result = await fetchWithDetails(url, {
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                results.push({ strategy: `path_${path}`, ...result });
+                
+                if (result.ok && result.data) {
+                    const urlFound = extractVideoUrl(result.data, debug);
+                    if (urlFound) {
+                        videoUrl = urlFound;
+                        fullData = result.data;
+                        usedStrategy = `path_based_${path}`;
+                        if (debug) console.log(`✅ Found video URL with path: ${videoUrl}`);
+                        break;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    // Strategy 7: Try with additional headers (like session, referer, etc.)
+    if (!videoUrl) {
+        if (debug) console.log('🔄 Strategy 7: Additional headers');
+        const headerSets = [
+            { 'Referer': 'https://rozgarapinew.teachx.in/', 'Origin': 'https://rozgarapinew.teachx.in' },
+            { 'X-Requested-With': 'XMLHttpRequest' },
+            { 'Accept': 'application/json, text/plain, */*' }
+        ];
+        
+        for (const headers of headerSets) {
+            try {
+                const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+                const result = await fetchWithDetails(url, {
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json',
+                        ...headers
+                    }
+                });
+                results.push({ strategy: `headers_${Object.keys(headers).join('_')}`, ...result });
+                
+                if (result.ok && result.data) {
+                    const urlFound = extractVideoUrl(result.data, debug);
+                    if (urlFound) {
+                        videoUrl = urlFound;
+                        fullData = result.data;
+                        usedStrategy = `additional_headers`;
+                        if (debug) console.log(`✅ Found video URL with additional headers: ${videoUrl}`);
+                        break;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+    
+    // If we found a video URL, return success
+    if (videoUrl) {
+        return {
+            success: true,
+            videoUrl,
+            fullData,
+            usedStrategy,
+            results: debug ? results : undefined
+        };
+    }
+    
+    // Return all results for debugging
     return {
         success: false,
+        results,
         message: 'All strategies failed'
     };
 }
@@ -356,6 +457,7 @@ export default {
         const url = new URL(request.url);
         const path = url.pathname;
         const method = request.method;
+        const debug = url.searchParams.has('debug') || url.searchParams.has('verbose');
         
         // Handle CORS preflight
         if (method === 'OPTIONS') {
@@ -367,11 +469,19 @@ export default {
         
         // Health check
         if (path === '/api/health' && method === 'GET') {
-            return successResponse({
-                status: 'OK',
-                api_base_url: API_BASE_URL,
-                version: '1.0.0',
-                timestamp: new Date().toISOString()
+            return new Response(JSON.stringify({
+                success: true,
+                data: {
+                    status: 'OK',
+                    api_base_url: API_BASE_URL,
+                    version: '1.0.0',
+                    timestamp: new Date().toISOString()
+                }
+            }), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders
+                }
             });
         }
         
@@ -388,84 +498,197 @@ export default {
                     course_id = body.course_id;
                     video_id = body.video_id;
                 } else {
-                    return errorResponse('Method not allowed', 405);
+                    return new Response(JSON.stringify({
+                        success: false,
+                        message: 'Method not allowed',
+                        timestamp: new Date().toISOString()
+                    }), {
+                        status: 405,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...corsHeaders
+                        }
+                    });
                 }
                 
                 // Validate parameters
                 if (!course_id || !video_id) {
-                    return errorResponse('course_id and video_id are required', 400);
+                    return new Response(JSON.stringify({
+                        success: false,
+                        message: 'course_id and video_id are required',
+                        timestamp: new Date().toISOString()
+                    }), {
+                        status: 400,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...corsHeaders
+                        }
+                    });
                 }
                 
                 console.log(`📡 Fetching video: course=${course_id}, video=${video_id}`);
                 
                 // Use cached data if available
                 const cacheKey = `video_${course_id}_${video_id}`;
-                const cached = await env.VIDEO_CACHE?.get(cacheKey, 'json');
+                let cached = null;
+                if (env.VIDEO_CACHE) {
+                    cached = await env.VIDEO_CACHE.get(cacheKey, 'json');
+                }
                 
                 if (cached && !url.searchParams.has('force_refresh')) {
                     console.log('✅ Returning cached data');
-                    return successResponse(cached, { from_cache: true });
+                    return new Response(JSON.stringify({
+                        success: true,
+                        data: cached,
+                        from_cache: true,
+                        timestamp: new Date().toISOString()
+                    }), {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...corsHeaders
+                        }
+                    });
                 }
                 
                 // Fetch with multiple strategies
-                const result = await fetchWithStrategies(course_id, video_id);
+                const result = await fetchWithStrategies(course_id, video_id, debug);
                 
                 if (result.success && result.videoUrl) {
                     const responseData = {
                         video_url: result.videoUrl,
-                        full_response: result.data,
+                        full_response: result.fullData,
                         course_id: course_id,
                         video_id: video_id,
-                        used_strategy: result.strategy,
-                        from_cache: false
+                        used_strategy: result.usedStrategy,
+                        from_cache: false,
+                        debug_info: debug ? result.results : undefined
                     };
                     
-                    // Cache the result (if KV binding exists)
+                    // Cache the result
                     if (env.VIDEO_CACHE) {
                         await env.VIDEO_CACHE.put(cacheKey, JSON.stringify(responseData), {
                             expirationTtl: 300 // 5 minutes
                         });
                     }
                     
-                    return successResponse(responseData);
-                } else if (result.data) {
-                    // Got data but no video URL
-                    return successResponse({
-                        message: 'No direct video URL found, but data received',
-                        full_response: result.data,
-                        course_id: course_id,
-                        video_id: video_id,
-                        used_strategy: result.strategy || 'unknown'
+                    return new Response(JSON.stringify({
+                        success: true,
+                        data: responseData,
+                        timestamp: new Date().toISOString()
+                    }), {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...corsHeaders
+                        }
                     });
                 } else {
-                    // All strategies failed
-                    return errorResponse('Could not fetch video data with any strategy', 404, {
-                        course_id,
-                        video_id,
-                        attempted_strategies: ['bearer_token', 'no_token', 'alternative_urls', 'parameter_variations', 'post_method', 'different_base_urls', 'minimal_params']
+                    // Return detailed error with all attempt results
+                    const errorData = {
+                        success: false,
+                        message: 'Could not fetch video data with any strategy',
+                        error: {
+                            course_id,
+                            video_id,
+                            attempted_strategies: result.results ? result.results.map(r => r.strategy) : [],
+                            strategy_results: debug ? result.results : undefined
+                        },
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    // Log error for debugging
+                    console.error('❌ All strategies failed:', JSON.stringify(errorData, null, 2));
+                    
+                    return new Response(JSON.stringify(errorData), {
+                        status: 404,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...corsHeaders
+                        }
                     });
                 }
                 
             } catch (error) {
                 console.error('❌ Error:', error);
-                return errorResponse('Internal server error', 500, error.message);
+                return new Response(JSON.stringify({
+                    success: false,
+                    message: 'Internal server error',
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                }), {
+                    status: 500,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders
+                    }
+                });
             }
         }
         
-        // Clear cache
-        if (path === '/api/clear-cache' && method === 'POST') {
-            if (env.VIDEO_CACHE) {
-                // Can't clear all keys in Workers KV without a list
-                return successResponse({
-                    message: 'Cache cleared for specific keys. Use ?key=video_xxx to clear specific.'
+        // Test endpoint to see what the API returns
+        if (path === '/api/test' && method === 'GET') {
+            try {
+                const course_id = url.searchParams.get('course_id') || '571';
+                const video_id = url.searchParams.get('video_id') || '297927';
+                
+                // Direct fetch to see raw response
+                const testUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+                const response = await fetch(testUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${BEARER_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const text = await response.text();
+                let json = null;
+                try {
+                    json = JSON.parse(text);
+                } catch (e) {
+                    // Not JSON
+                }
+                
+                return new Response(JSON.stringify({
+                    success: true,
+                    data: {
+                        url: testUrl,
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: Object.fromEntries(response.headers),
+                        body_text: text.substring(0, 1000),
+                        body_json: json,
+                        video_url_extracted: json ? extractVideoUrl(json, true) : null
+                    }
+                }, null, 2), {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders
+                    }
+                });
+            } catch (error) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: error.message
+                }), {
+                    status: 500,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders
+                    }
                 });
             }
-            return successResponse({
-                message: 'No cache configured'
-            });
         }
         
         // 404 for other paths
-        return errorResponse('Endpoint not found', 404);
+        return new Response(JSON.stringify({
+            success: false,
+            message: 'Endpoint not found',
+            timestamp: new Date().toISOString()
+        }), {
+            status: 404,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders
+            }
+        });
     }
 };
