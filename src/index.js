@@ -2,20 +2,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    const endpoint = url.searchParams.get("endpoint");
     const token = url.searchParams.get("token");
     const course_id = url.searchParams.get("course_id");
     const video_id = url.searchParams.get("video_id");
 
-    // ❌ Validate endpoint
-    if (endpoint !== "video-details") {
-      return json({ error: "Invalid endpoint" }, 400);
-    }
-
-    // ❌ Validate params
+    // ✅ Validate
     if (!token || !course_id || !video_id) {
       return json({
-        error: "Missing parameters",
+        error: "Missing params",
         required: ["token", "course_id", "video_id"]
       }, 400);
     }
@@ -23,55 +17,60 @@ export default {
     // 🔐 Clean token
     const cleanToken = token.replace("~@SDV_BOTX", "").trim();
 
-    if (cleanToken.length < 20) {
-      return json({ error: "Invalid token" }, 401);
-    }
-
-    // ⚡ Cache key
-    const cacheKey = new Request(request.url, request);
-    const cache = caches.default;
-
-    // 🔄 Try cache
-    let cached = await cache.match(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    const apiUrl = `https://rozgarapinew.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0`;
 
     try {
-      const apiUrl = `https://rozgarapinew.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-
-      const response = await fetch(apiUrl, {
+      const res = await fetch(apiUrl, {
+        method: "GET",
         headers: {
           "Client-Service": "Appx",
           "Auth-Key": "appxapi",
           "source": "website",
-          "Authorization": cleanToken
+          "Authorization": cleanToken,
+          "User-Agent": "Mozilla/5.0",
+          "Accept": "application/json",
+          "Referer": "https://rojgarwithankit.co.in/"
         }
       });
 
-      const data = await response.json();
+      // 🔍 Get raw response
+      const text = await res.text();
 
-      // 📦 Clean response
-      const d = data.data?.[0] || {};
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return json({
+          error: "Invalid JSON from API",
+          raw: text
+        }, 500);
+      }
 
-      const finalData = {
+      // ❌ If API failed
+      if (!data || data.status === 0) {
+        return json({
+          error: "API returned invalid/empty data",
+          raw: data
+        }, 500);
+      }
+
+      // 🎥 Extract video data safely
+      let video = data?.data?.[0] || data?.data || data;
+
+      const result = {
         status: "success",
-        title: d.title || "",
-        video_id: d.id || video_id,
-        course_id: d.course_id || course_id,
-        qualities: d.qualities || {},
-        thumbnail: d.thumbnail || "",
-        notes: d.pdf_link || "",
-        dpp: d.pdf_link2 || "",
-        date: d.date_and_time || ""
+        title: video.title || "",
+        video_id: video.id || video_id,
+        course_id: video.course_id || course_id,
+        qualities: video.qualities || {},
+        thumbnail: video.thumbnail || "",
+        notes: video.pdf_link || "",
+        dpp: video.pdf_link2 || "",
+        date: video.date_and_time || "",
+        raw: data // keep raw for debugging
       };
 
-      const res = json(finalData, 200);
-
-      // 💾 Save to cache
-      ctx.waitUntil(cache.put(cacheKey, res.clone()));
-
-      return res;
+      return json(result);
 
     } catch (err) {
       return json({
@@ -82,13 +81,14 @@ export default {
   }
 };
 
-// 📦 Helper
+// ✅ Helper
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*"
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "*"
     }
   });
 }
