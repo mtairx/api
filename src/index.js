@@ -3,12 +3,10 @@ export default {
     try {
       const url = new URL(request.url);
 
-      // Get params from your API
       const token = url.searchParams.get("token");
       const course_id = url.searchParams.get("course_id");
       const video_id = url.searchParams.get("video_id");
 
-      // Validate params
       if (!token || !course_id || !video_id) {
         return new Response(JSON.stringify({
           success: false,
@@ -16,28 +14,45 @@ export default {
         }), { status: 400 });
       }
 
-      // Target API
       const targetUrl = `https://rozgarapinew.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0`;
 
-      // Fetch original API
       const response = await fetch(targetUrl, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
+          "Accept": "application/json",
           "User-Agent": "Mozilla/5.0",
-          "Accept": "application/json"
+
+          // 🔥 IMPORTANT HEADERS
+          "origin": "https://teachx.in",
+          "referer": "https://teachx.in/",
+          "app-version": "1.0.0",
+          "platform": "web"
         }
       });
 
-      const data = await response.json();
+      // 👇 read as text first
+      const text = await response.text();
 
-      // Return clean response
+      // try to parse JSON safely
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "API returned non-JSON (likely blocked)",
+          preview: text.slice(0, 200) // show first part
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
       return new Response(JSON.stringify({
         success: true,
-        source: "mtaiirus-proxy",
         data: data
       }), {
-        status: 200,
         headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*"
