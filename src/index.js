@@ -1,694 +1,672 @@
-// index.js - Cloudflare Worker with enhanced debugging and strategies
+// worker.js - Complete OTP Login with Bearer Token (JSON File Storage)
 
-// Configuration
+const fs = require('fs');
+const path = require('path');
 const API_BASE_URL = 'https://rozgarapinew.teachx.in';
-const BEARER_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODU0MTAyNTIsIml2X3ZlciI6OSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.yAYNEfdfdvE4jZXdr4582bkn3P9B4ss0UnjLO0DwiQ8';
 
-// CORS headers
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Max-Age': '86400'
-};
+// Path to store tokens
+const TOKEN_STORE_PATH = path.join(__dirname, 'tokens.json');
 
-// Enhanced video URL extraction with more patterns
-function extractVideoUrl(data, debug = false) {
-    if (!data) return null;
-    
-    // Log for debugging
-    if (debug) console.log('🔍 Searching for video URL in:', JSON.stringify(data).substring(0, 500));
-    
-    // If data is a string, try to parse it
-    if (typeof data === 'string') {
-        try {
-            const parsed = JSON.parse(data);
-            return extractVideoUrl(parsed, debug);
-        } catch (e) {
-            // Check if it's a direct URL
-            if (data.startsWith('http') && (data.includes('.mp4') || data.includes('m3u8') || data.includes('video'))) {
-                return data;
-            }
-            return null;
-        }
-    }
-    
-    // If data is an array, check each item
-    if (Array.isArray(data)) {
-        for (const item of data) {
-            const result = extractVideoUrl(item, debug);
-            if (result) return result;
-        }
-        return null;
-    }
-    
-    // If data is an object, search through it
-    if (typeof data === 'object' && data !== null) {
-        // Check common paths first
-        const commonPaths = [
-            'video_url', 'url', 'videoLink', 'VideoURL', 'URL',
-            'video', 'source', 'src', 'href', 'link', 'file_url',
-            'fileUrl', 'stream_url', 'streamUrl', 'media_url', 'mediaUrl',
-            'play_url', 'playUrl', 'content', 'data', 'result', 'response'
-        ];
-        
-        // Check for direct keys
-        for (const key of commonPaths) {
-            if (data[key] !== undefined && data[key] !== null) {
-                const value = data[key];
-                if (typeof value === 'string' && value.startsWith('http')) {
-                    if (value.includes('.mp4') || value.includes('m3u8') || value.includes('video') || value.includes('stream')) {
-                        if (debug) console.log(`✅ Found video URL in key: ${key}`);
-                        return value;
-                    }
-                }
-                // Recursively check nested objects
-                if (typeof value === 'object') {
-                    const result = extractVideoUrl(value, debug);
-                    if (result) return result;
-                }
-            }
-        }
-        
-        // Check nested paths with dot notation
-        const nestedPaths = [
-            'data.video_url', 'data.url', 'data.video', 'data.data.video_url',
-            'result.video_url', 'result.url', 'response.video_url',
-            'content.video_url', 'content.url', 'video.url', 'video.source'
-        ];
-        
-        for (const path of nestedPaths) {
-            const parts = path.split('.');
-            let value = data;
-            let found = true;
-            
-            for (const part of parts) {
-                if (value && typeof value === 'object' && part in value) {
-                    value = value[part];
-                } else {
-                    found = false;
-                    break;
-                }
-            }
-            
-            if (found && typeof value === 'string' && value.startsWith('http')) {
-                if (debug) console.log(`✅ Found video URL in nested path: ${path}`);
-                return value;
-            }
-        }
-        
-        // Deep recursive search for any URL
-        function deepSearch(obj, path = '') {
-            if (!obj || typeof obj !== 'object') return null;
-            
-            for (const key of Object.keys(obj)) {
-                const value = obj[key];
-                const currentPath = path ? `${path}.${key}` : key;
-                
-                if (typeof value === 'string' && value.startsWith('http')) {
-                    // Check if it looks like a video URL
-                    const videoIndicators = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', 'video', 'stream', 'play', 'media'];
-                    if (videoIndicators.some(ind => value.toLowerCase().includes(ind))) {
-                        if (debug) console.log(`✅ Found video URL at path: ${currentPath}`);
-                        return value;
-                    }
-                    // Also return any URL if we can't find a better one
-                    if (!videoUrl && value.startsWith('http')) {
-                        videoUrl = value;
-                    }
-                } else if (typeof value === 'object' && value !== null) {
-                    const result = deepSearch(value, currentPath);
-                    if (result) return result;
-                }
-            }
-            return null;
-        }
-        
-        let videoUrl = null;
-        const result = deepSearch(data);
-        if (result) return result;
-    }
-    
-    return null;
-}
+class AuthWorker {
+  constructor() {
+    this.baseURL = API_BASE_URL;
+    this.tokenStore = this.loadTokenStore();
+  }
 
-// Enhanced fetch function with more details
-async function fetchWithDetails(url, options = {}) {
-    const startTime = Date.now();
+  /**
+   * Load token store from JSON file
+   */
+  loadTokenStore() {
     try {
-        const response = await fetch(url, {
-            ...options,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                ...options.headers
-            }
-        });
-        
-        const duration = Date.now() - startTime;
-        const contentType = response.headers.get('content-type') || '';
-        let data = null;
-        
-        if (contentType.includes('application/json')) {
-            data = await response.json();
-        } else {
-            const text = await response.text();
-            try {
-                data = JSON.parse(text);
-            } catch (e) {
-                data = { raw: text };
-            }
-        }
-        
-        return {
-            ok: response.ok,
-            status: response.status,
-            statusText: response.statusText,
-            headers: Object.fromEntries(response.headers),
-            data,
-            duration,
-            url
-        };
+      if (fs.existsSync(TOKEN_STORE_PATH)) {
+        const data = fs.readFileSync(TOKEN_STORE_PATH, 'utf8');
+        return JSON.parse(data);
+      }
     } catch (error) {
-        return {
-            ok: false,
-            error: error.message,
-            duration: Date.now() - startTime,
-            url
-        };
+      console.error('Error loading token store:', error.message);
     }
-}
-
-// Main fetch function with enhanced strategies
-async function fetchWithStrategies(course_id, video_id, debug = false) {
-    const results = [];
-    let videoUrl = null;
-    let fullData = null;
-    let usedStrategy = null;
-    
-    // Strategy 1: Bearer token with standard params
-    if (debug) console.log('🔄 Strategy 1: Bearer token with standard params');
-    try {
-        const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-        const result = await fetchWithDetails(url, {
-            headers: {
-                'Authorization': `Bearer ${BEARER_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        results.push({ strategy: 'bearer_token', ...result });
-        
-        if (result.ok && result.data) {
-            const urlFound = extractVideoUrl(result.data, debug);
-            if (urlFound) {
-                videoUrl = urlFound;
-                fullData = result.data;
-                usedStrategy = 'bearer_token';
-                if (debug) console.log(`✅ Found video URL with bearer token: ${videoUrl}`);
-            }
-        }
-    } catch (error) {
-        if (debug) console.log(`❌ Strategy 1 failed: ${error.message}`);
-    }
-    
-    // Strategy 2: No token
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 2: No token');
-        try {
-            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-            const result = await fetchWithDetails(url, {
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            results.push({ strategy: 'no_token', ...result });
-            
-            if (result.ok && result.data) {
-                const urlFound = extractVideoUrl(result.data, debug);
-                if (urlFound) {
-                    videoUrl = urlFound;
-                    fullData = result.data;
-                    usedStrategy = 'no_token';
-                    if (debug) console.log(`✅ Found video URL without token: ${videoUrl}`);
-                }
-            }
-        } catch (error) {
-            if (debug) console.log(`❌ Strategy 2 failed: ${error.message}`);
-        }
-    }
-    
-    // Strategy 3: Different parameter combinations
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 3: Different parameter combinations');
-        const variations = [
-            { ytflag: 1, folder_wise_course: 0 },
-            { ytflag: 0, folder_wise_course: 1 },
-            { ytflag: 1, folder_wise_course: 1 },
-            { ytflag: 0, folder_wise_course: 0, lc_app_api_url: '1' }
-        ];
-        
-        for (const params of variations) {
-            try {
-                const paramString = new URLSearchParams({
-                    course_id,
-                    video_id,
-                    ...params
-                }).toString();
-                const url = `${API_BASE_URL}/get/fetchVideoDetailsById?${paramString}`;
-                const result = await fetchWithDetails(url, {
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                results.push({ strategy: `params_${JSON.stringify(params)}`, ...result });
-                
-                if (result.ok && result.data) {
-                    const urlFound = extractVideoUrl(result.data, debug);
-                    if (urlFound) {
-                        videoUrl = urlFound;
-                        fullData = result.data;
-                        usedStrategy = `parameter_variation_${JSON.stringify(params)}`;
-                        if (debug) console.log(`✅ Found video URL with params: ${videoUrl}`);
-                        break;
-                    }
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    }
-    
-    // Strategy 4: Alternative API endpoints
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 4: Alternative API endpoints');
-        const endpoints = [
-            '/api/get/fetchVideoDetailsById',
-            '/fetchVideoDetailsById',
-            '/get/videoDetails',
-            '/api/video/details',
-            '/video/details'
-        ];
-        
-        for (const endpoint of endpoints) {
-            try {
-                const url = `${API_BASE_URL}${endpoint}?course_id=${course_id}&video_id=${video_id}`;
-                const result = await fetchWithDetails(url, {
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                results.push({ strategy: `endpoint_${endpoint}`, ...result });
-                
-                if (result.ok && result.data) {
-                    const urlFound = extractVideoUrl(result.data, debug);
-                    if (urlFound) {
-                        videoUrl = urlFound;
-                        fullData = result.data;
-                        usedStrategy = `alternative_endpoint_${endpoint}`;
-                        if (debug) console.log(`✅ Found video URL with alternative endpoint: ${videoUrl}`);
-                        break;
-                    }
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    }
-    
-    // Strategy 5: POST method with different body formats
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 5: POST method');
-        const bodyFormats = [
-            { course_id: parseInt(course_id), video_id: parseInt(video_id), ytflag: 0, folder_wise_course: 0 },
-            { course_id: course_id, video_id: video_id, ytflag: '0', folder_wise_course: '0' },
-            { course_id: parseInt(course_id), video_id: parseInt(video_id) },
-            { id: parseInt(course_id), video: parseInt(video_id) }
-        ];
-        
-        for (const body of bodyFormats) {
-            try {
-                const url = `${API_BASE_URL}/get/fetchVideoDetailsById`;
-                const result = await fetchWithDetails(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body)
-                });
-                results.push({ strategy: `post_${JSON.stringify(body)}`, ...result });
-                
-                if (result.ok && result.data) {
-                    const urlFound = extractVideoUrl(result.data, debug);
-                    if (urlFound) {
-                        videoUrl = urlFound;
-                        fullData = result.data;
-                        usedStrategy = `post_method_${JSON.stringify(body)}`;
-                        if (debug) console.log(`✅ Found video URL with POST: ${videoUrl}`);
-                        break;
-                    }
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    }
-    
-    // Strategy 6: Try without course_id and video_id as query, use path instead
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 6: Path-based URL');
-        const pathFormats = [
-            `/video/${video_id}`,
-            `/course/${course_id}/video/${video_id}`,
-            `/api/video/${video_id}`,
-            `/get/video/${video_id}`
-        ];
-        
-        for (const path of pathFormats) {
-            try {
-                const url = `${API_BASE_URL}${path}`;
-                const result = await fetchWithDetails(url, {
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                results.push({ strategy: `path_${path}`, ...result });
-                
-                if (result.ok && result.data) {
-                    const urlFound = extractVideoUrl(result.data, debug);
-                    if (urlFound) {
-                        videoUrl = urlFound;
-                        fullData = result.data;
-                        usedStrategy = `path_based_${path}`;
-                        if (debug) console.log(`✅ Found video URL with path: ${videoUrl}`);
-                        break;
-                    }
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    }
-    
-    // Strategy 7: Try with additional headers (like session, referer, etc.)
-    if (!videoUrl) {
-        if (debug) console.log('🔄 Strategy 7: Additional headers');
-        const headerSets = [
-            { 'Referer': 'https://rozgarapinew.teachx.in/', 'Origin': 'https://rozgarapinew.teachx.in' },
-            { 'X-Requested-With': 'XMLHttpRequest' },
-            { 'Accept': 'application/json, text/plain, */*' }
-        ];
-        
-        for (const headers of headerSets) {
-            try {
-                const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-                const result = await fetchWithDetails(url, {
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json',
-                        ...headers
-                    }
-                });
-                results.push({ strategy: `headers_${Object.keys(headers).join('_')}`, ...result });
-                
-                if (result.ok && result.data) {
-                    const urlFound = extractVideoUrl(result.data, debug);
-                    if (urlFound) {
-                        videoUrl = urlFound;
-                        fullData = result.data;
-                        usedStrategy = `additional_headers`;
-                        if (debug) console.log(`✅ Found video URL with additional headers: ${videoUrl}`);
-                        break;
-                    }
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    }
-    
-    // If we found a video URL, return success
-    if (videoUrl) {
-        return {
-            success: true,
-            videoUrl,
-            fullData,
-            usedStrategy,
-            results: debug ? results : undefined
-        };
-    }
-    
-    // Return all results for debugging
+    // Return default structure if file doesn't exist or error
     return {
-        success: false,
-        results,
-        message: 'All strategies failed'
+      sessions: [],
+      tokens: [],
+      lastUpdated: new Date().toISOString()
     };
+  }
+
+  /**
+   * Save token store to JSON file
+   */
+  saveTokenStore() {
+    try {
+      this.tokenStore.lastUpdated = new Date().toISOString();
+      fs.writeFileSync(TOKEN_STORE_PATH, JSON.stringify(this.tokenStore, null, 2), 'utf8');
+      return true;
+    } catch (error) {
+      console.error('Error saving token store:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Send OTP to phone or email
+   * @param {string} phoneOrEmail - Phone number or email
+   * @returns {Promise<Object>} Response with OTP status
+   */
+  async sendOTP(phoneOrEmail) {
+    try {
+      const url = `${this.baseURL}/get/sendotp?phone=${encodeURIComponent(phoneOrEmail)}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to send OTP');
+      }
+
+      return {
+        success: true,
+        message: 'OTP sent successfully',
+        data: data,
+        phoneOrEmail: phoneOrEmail
+      };
+    } catch (error) {
+      console.error('Send OTP Error:', error.message);
+      return {
+        success: false,
+        message: error.message || 'Failed to send OTP',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Verify OTP and generate bearer token
+   * @param {string} phoneOrEmail - Phone number or email
+   * @param {string} otp - OTP received
+   * @returns {Promise<Object>} Response with bearer token
+   */
+  async verifyOTP(phoneOrEmail, otp) {
+    try {
+      // Build URL with all required parameters
+      const url = `${this.baseURL}/get/otpverify?useremail=${encodeURIComponent(phoneOrEmail)}&otp=${otp}&device_id=v&mydeviceid=&mydeviceid2=`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || 'OTP verification failed');
+      }
+
+      // Generate bearer token
+      const token = this.generateBearerToken(phoneOrEmail, data);
+
+      // Store token in JSON file
+      this.storeToken(phoneOrEmail, token, data);
+
+      return {
+        success: true,
+        message: 'OTP verified successfully',
+        token: token,
+        user: {
+          phoneOrEmail: phoneOrEmail,
+          verified: true,
+          timestamp: new Date().toISOString()
+        },
+        data: data
+      };
+    } catch (error) {
+      console.error('Verify OTP Error:', error.message);
+      return {
+        success: false,
+        message: error.message || 'OTP verification failed',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Generate bearer token (simplified JWT-like token)
+   * In production, use jsonwebtoken library
+   */
+  generateBearerToken(phoneOrEmail, data) {
+    const tokenId = `tok_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const payload = {
+      tokenId: tokenId,
+      phoneOrEmail: phoneOrEmail,
+      verified: true,
+      timestamp: Date.now(),
+      expiresIn: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    // Encode as base64 (simplified - use actual JWT in production)
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64');
+    
+    // Simple signature (in production, use HMAC with secret)
+    const signature = Buffer.from(
+      `${header}.${encodedPayload}`,
+      'utf-8'
+    ).toString('base64');
+
+    return `${header}.${encodedPayload}.${signature}`;
+  }
+
+  /**
+   * Store token in JSON file
+   */
+  storeToken(phoneOrEmail, token, data) {
+    // Reload token store to get latest data
+    this.tokenStore = this.loadTokenStore();
+    
+    // Check if token already exists for this user
+    const existingIndex = this.tokenStore.tokens.findIndex(
+      t => t.phoneOrEmail === phoneOrEmail && t.isActive === true
+    );
+
+    // If exists, deactivate old token
+    if (existingIndex !== -1) {
+      this.tokenStore.tokens[existingIndex].isActive = false;
+      this.tokenStore.tokens[existingIndex].revokedAt = new Date().toISOString();
+    }
+
+    // Create new token entry
+    const tokenEntry = {
+      tokenId: `tok_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      phoneOrEmail: phoneOrEmail,
+      token: token,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      data: data,
+      ipAddress: null,
+      userAgent: null
+    };
+
+    // Add to tokens array
+    this.tokenStore.tokens.push(tokenEntry);
+
+    // Add to sessions
+    const sessionEntry = {
+      sessionId: `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      tokenId: tokenEntry.tokenId,
+      phoneOrEmail: phoneOrEmail,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      isActive: true
+    };
+    this.tokenStore.sessions.push(sessionEntry);
+
+    // Save to file
+    this.saveTokenStore();
+
+    // Cleanup expired tokens
+    this.cleanupExpiredTokens();
+  }
+
+  /**
+   * Verify bearer token
+   */
+  verifyBearerToken(token) {
+    try {
+      // Reload token store
+      this.tokenStore = this.loadTokenStore();
+
+      // Check if token exists in store
+      const tokenRecord = this.tokenStore.tokens.find(t => t.token === token);
+      
+      if (!tokenRecord) {
+        return { valid: false, message: 'Token not found' };
+      }
+
+      if (!tokenRecord.isActive) {
+        return { valid: false, message: 'Token has been revoked' };
+      }
+
+      // Parse token
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return { valid: false, message: 'Invalid token format' };
+      }
+
+      // Decode payload
+      const payload = JSON.parse(
+        Buffer.from(parts[1], 'base64').toString('utf-8')
+      );
+
+      // Check if token is expired
+      if (payload.expiresIn && Date.now() > payload.expiresIn) {
+        // Mark as inactive in store
+        tokenRecord.isActive = false;
+        tokenRecord.revokedAt = new Date().toISOString();
+        tokenRecord.revokedReason = 'Expired';
+        this.saveTokenStore();
+        return { valid: false, message: 'Token expired' };
+      }
+
+      return {
+        valid: true,
+        payload: payload,
+        tokenRecord: tokenRecord
+      };
+    } catch (error) {
+      return { valid: false, message: 'Invalid token' };
+    }
+  }
+
+  /**
+   * Get token by phone/email
+   */
+  getTokenByPhone(phoneOrEmail) {
+    this.tokenStore = this.loadTokenStore();
+    const tokens = this.tokenStore.tokens.filter(
+      t => t.phoneOrEmail === phoneOrEmail && t.isActive === true
+    );
+    return tokens;
+  }
+
+  /**
+   * Get all active tokens
+   */
+  getActiveTokens() {
+    this.tokenStore = this.loadTokenStore();
+    return this.tokenStore.tokens.filter(t => t.isActive === true);
+  }
+
+  /**
+   * Get all sessions
+   */
+  getActiveSessions() {
+    this.tokenStore = this.loadTokenStore();
+    return this.tokenStore.sessions.filter(s => s.isActive === true);
+  }
+
+  /**
+   * Revoke token (logout)
+   */
+  revokeToken(token) {
+    try {
+      this.tokenStore = this.loadTokenStore();
+      
+      const tokenIndex = this.tokenStore.tokens.findIndex(t => t.token === token);
+      
+      if (tokenIndex === -1) {
+        return { success: false, message: 'Token not found' };
+      }
+
+      // Deactivate token
+      this.tokenStore.tokens[tokenIndex].isActive = false;
+      this.tokenStore.tokens[tokenIndex].revokedAt = new Date().toISOString();
+      this.tokenStore.tokens[tokenIndex].revokedReason = 'User logout';
+
+      // Deactivate associated sessions
+      const tokenId = this.tokenStore.tokens[tokenIndex].tokenId;
+      this.tokenStore.sessions.forEach(session => {
+        if (session.tokenId === tokenId) {
+          session.isActive = false;
+          session.revokedAt = new Date().toISOString();
+        }
+      });
+
+      this.saveTokenStore();
+      
+      return { 
+        success: true, 
+        message: 'Token revoked successfully',
+        tokenId: tokenId
+      };
+    } catch (error) {
+      return { 
+        success: false, 
+        message: 'Failed to revoke token',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Revoke all tokens for a user
+   */
+  revokeAllUserTokens(phoneOrEmail) {
+    try {
+      this.tokenStore = this.loadTokenStore();
+      
+      let revokedCount = 0;
+      
+      this.tokenStore.tokens.forEach(token => {
+        if (token.phoneOrEmail === phoneOrEmail && token.isActive) {
+          token.isActive = false;
+          token.revokedAt = new Date().toISOString();
+          token.revokedReason = 'Revoke all user tokens';
+          revokedCount++;
+        }
+      });
+
+      // Deactivate all sessions for this user
+      this.tokenStore.sessions.forEach(session => {
+        if (session.phoneOrEmail === phoneOrEmail && session.isActive) {
+          session.isActive = false;
+          session.revokedAt = new Date().toISOString();
+        }
+      });
+
+      this.saveTokenStore();
+      
+      return {
+        success: true,
+        message: `Revoked ${revokedCount} tokens for user`,
+        revokedCount: revokedCount
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to revoke tokens',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Cleanup expired tokens
+   */
+  cleanupExpiredTokens() {
+    try {
+      this.tokenStore = this.loadTokenStore();
+      const now = Date.now();
+      let expiredCount = 0;
+
+      this.tokenStore.tokens.forEach(token => {
+        if (new Date(token.expiresAt).getTime() < now && token.isActive) {
+          token.isActive = false;
+          token.revokedAt = new Date().toISOString();
+          token.revokedReason = 'Auto-expired';
+          expiredCount++;
+        }
+      });
+
+      // Cleanup expired sessions
+      this.tokenStore.sessions.forEach(session => {
+        if (new Date(session.expiresAt).getTime() < now && session.isActive) {
+          session.isActive = false;
+          session.revokedAt = new Date().toISOString();
+        }
+      });
+
+      if (expiredCount > 0) {
+        this.saveTokenStore();
+      }
+
+      return {
+        success: true,
+        expiredCount: expiredCount
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to cleanup tokens',
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get token statistics
+   */
+  getTokenStats() {
+    this.tokenStore = this.loadTokenStore();
+    
+    const total = this.tokenStore.tokens.length;
+    const active = this.tokenStore.tokens.filter(t => t.isActive).length;
+    const revoked = this.tokenStore.tokens.filter(t => !t.isActive).length;
+    const expired = this.tokenStore.tokens.filter(t => 
+      !t.isActive && t.revokedReason === 'Expired'
+    ).length;
+    const sessions = this.tokenStore.sessions.filter(s => s.isActive).length;
+
+    return {
+      totalTokens: total,
+      activeTokens: active,
+      revokedTokens: revoked,
+      expiredTokens: expired,
+      activeSessions: sessions,
+      lastUpdated: this.tokenStore.lastUpdated,
+      uniqueUsers: new Set(this.tokenStore.tokens.map(t => t.phoneOrEmail)).size
+    };
+  }
+
+  /**
+   * Clear all tokens (dangerous - use with caution)
+   */
+  clearAllTokens() {
+    try {
+      this.tokenStore = {
+        sessions: [],
+        tokens: [],
+        lastUpdated: new Date().toISOString()
+      };
+      this.saveTokenStore();
+      return { success: true, message: 'All tokens cleared' };
+    } catch (error) {
+      return { success: false, message: 'Failed to clear tokens', error: error.message };
+    }
+  }
 }
 
-// Cloudflare Worker handler
-export default {
-    async fetch(request, env, ctx) {
-        const url = new URL(request.url);
-        const path = url.pathname;
-        const method = request.method;
-        const debug = url.searchParams.has('debug') || url.searchParams.has('verbose');
-        
-        // Handle CORS preflight
-        if (method === 'OPTIONS') {
-            return new Response(null, {
-                status: 204,
-                headers: corsHeaders
-            });
-        }
-        
-        // Health check
-        if (path === '/api/health' && method === 'GET') {
-            return new Response(JSON.stringify({
-                success: true,
-                data: {
-                    status: 'OK',
-                    api_base_url: API_BASE_URL,
-                    version: '1.0.0',
-                    timestamp: new Date().toISOString()
-                }
-            }), {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...corsHeaders
-                }
-            });
-        }
-        
-        // Fetch video endpoint
-        if (path === '/api/fetch-video') {
-            try {
-                let course_id, video_id;
-                
-                if (method === 'GET') {
-                    course_id = url.searchParams.get('course_id');
-                    video_id = url.searchParams.get('video_id');
-                } else if (method === 'POST') {
-                    const body = await request.json().catch(() => ({}));
-                    course_id = body.course_id;
-                    video_id = body.video_id;
-                } else {
-                    return new Response(JSON.stringify({
-                        success: false,
-                        message: 'Method not allowed',
-                        timestamp: new Date().toISOString()
-                    }), {
-                        status: 405,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...corsHeaders
-                        }
-                    });
-                }
-                
-                // Validate parameters
-                if (!course_id || !video_id) {
-                    return new Response(JSON.stringify({
-                        success: false,
-                        message: 'course_id and video_id are required',
-                        timestamp: new Date().toISOString()
-                    }), {
-                        status: 400,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...corsHeaders
-                        }
-                    });
-                }
-                
-                console.log(`📡 Fetching video: course=${course_id}, video=${video_id}`);
-                
-                // Use cached data if available
-                const cacheKey = `video_${course_id}_${video_id}`;
-                let cached = null;
-                if (env.VIDEO_CACHE) {
-                    cached = await env.VIDEO_CACHE.get(cacheKey, 'json');
-                }
-                
-                if (cached && !url.searchParams.has('force_refresh')) {
-                    console.log('✅ Returning cached data');
-                    return new Response(JSON.stringify({
-                        success: true,
-                        data: cached,
-                        from_cache: true,
-                        timestamp: new Date().toISOString()
-                    }), {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...corsHeaders
-                        }
-                    });
-                }
-                
-                // Fetch with multiple strategies
-                const result = await fetchWithStrategies(course_id, video_id, debug);
-                
-                if (result.success && result.videoUrl) {
-                    const responseData = {
-                        video_url: result.videoUrl,
-                        full_response: result.fullData,
-                        course_id: course_id,
-                        video_id: video_id,
-                        used_strategy: result.usedStrategy,
-                        from_cache: false,
-                        debug_info: debug ? result.results : undefined
-                    };
-                    
-                    // Cache the result
-                    if (env.VIDEO_CACHE) {
-                        await env.VIDEO_CACHE.put(cacheKey, JSON.stringify(responseData), {
-                            expirationTtl: 300 // 5 minutes
-                        });
-                    }
-                    
-                    return new Response(JSON.stringify({
-                        success: true,
-                        data: responseData,
-                        timestamp: new Date().toISOString()
-                    }), {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...corsHeaders
-                        }
-                    });
-                } else {
-                    // Return detailed error with all attempt results
-                    const errorData = {
-                        success: false,
-                        message: 'Could not fetch video data with any strategy',
-                        error: {
-                            course_id,
-                            video_id,
-                            attempted_strategies: result.results ? result.results.map(r => r.strategy) : [],
-                            strategy_results: debug ? result.results : undefined
-                        },
-                        timestamp: new Date().toISOString()
-                    };
-                    
-                    // Log error for debugging
-                    console.error('❌ All strategies failed:', JSON.stringify(errorData, null, 2));
-                    
-                    return new Response(JSON.stringify(errorData), {
-                        status: 404,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...corsHeaders
-                        }
-                    });
-                }
-                
-            } catch (error) {
-                console.error('❌ Error:', error);
-                return new Response(JSON.stringify({
-                    success: false,
-                    message: 'Internal server error',
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                }), {
-                    status: 500,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...corsHeaders
-                    }
-                });
-            }
-        }
-        
-        // Test endpoint to see what the API returns
-        if (path === '/api/test' && method === 'GET') {
-            try {
-                const course_id = url.searchParams.get('course_id') || '571';
-                const video_id = url.searchParams.get('video_id') || '297927';
-                
-                // Direct fetch to see raw response
-                const testUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-                const response = await fetch(testUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                const text = await response.text();
-                let json = null;
-                try {
-                    json = JSON.parse(text);
-                } catch (e) {
-                    // Not JSON
-                }
-                
-                return new Response(JSON.stringify({
-                    success: true,
-                    data: {
-                        url: testUrl,
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: Object.fromEntries(response.headers),
-                        body_text: text.substring(0, 1000),
-                        body_json: json,
-                        video_url_extracted: json ? extractVideoUrl(json, true) : null
-                    }
-                }, null, 2), {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...corsHeaders
-                    }
-                });
-            } catch (error) {
-                return new Response(JSON.stringify({
-                    success: false,
-                    error: error.message
-                }), {
-                    status: 500,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...corsHeaders
-                    }
-                });
-            }
-        }
-        
-        // 404 for other paths
-        return new Response(JSON.stringify({
-            success: false,
-            message: 'Endpoint not found',
-            timestamp: new Date().toISOString()
-        }), {
-            status: 404,
-            headers: {
-                'Content-Type': 'application/json',
-                ...corsHeaders
-            }
-        });
+// Create instance
+const authWorker = new AuthWorker();
+
+// ============================================
+// Express Server Implementation
+// ============================================
+
+function createServer() {
+  const express = require('express');
+  const cors = require('cors');
+  const app = express();
+
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // Send OTP endpoint
+  app.get('/api/auth/send-otp/:phone', async (req, res) => {
+    const { phone } = req.params;
+    const result = await authWorker.sendOTP(phone);
+    
+    if (result.success) {
+      res.status(200).json(result);
+    } else {
+      res.status(400).json(result);
     }
+  });
+
+  // Verify OTP endpoint
+  app.post('/api/auth/verify-otp', async (req, res) => {
+    const { phone, otp } = req.body;
+    
+    if (!phone || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone/Email and OTP are required'
+      });
+    }
+    
+    const result = await authWorker.verifyOTP(phone, otp);
+    
+    if (result.success) {
+      res.status(200).json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  });
+
+  // Verify token endpoint
+  app.get('/api/auth/verify-token', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token required'
+      });
+    }
+    
+    const result = authWorker.verifyBearerToken(token);
+    
+    if (result.valid) {
+      res.status(200).json({
+        success: true,
+        message: 'Token is valid',
+        data: result.payload,
+        tokenRecord: result.tokenRecord
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        message: 'Invalid token',
+        error: result.message
+      });
+    }
+  });
+
+  // Protected route example
+  app.get('/api/auth/protected', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access token required'
+      });
+    }
+    
+    const verification = authWorker.verifyBearerToken(token);
+    
+    if (!verification.valid) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid or expired token',
+        error: verification.message
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Protected resource accessed',
+      user: verification.payload,
+      tokenInfo: verification.tokenRecord
+    });
+  });
+
+  // Logout endpoint
+  app.post('/api/auth/logout', async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token required'
+      });
+    }
+    
+    const result = authWorker.revokeToken(token);
+    res.status(result.success ? 200 : 404).json(result);
+  });
+
+  // Revoke all user tokens
+  app.post('/api/auth/revoke-all/:phone', async (req, res) => {
+    const { phone } = req.params;
+    const result = authWorker.revokeAllUserTokens(phone);
+    res.status(result.success ? 200 : 400).json(result);
+  });
+
+  // Get token stats
+  app.get('/api/auth/stats', async (req, res) => {
+    const stats = authWorker.getTokenStats();
+    res.json(stats);
+  });
+
+  // Get active tokens (admin only - add authentication)
+  app.get('/api/auth/tokens', async (req, res) => {
+    const tokens = authWorker.getActiveTokens();
+    res.json({
+      success: true,
+      count: tokens.length,
+      tokens: tokens
+    });
+  });
+
+  // Health check
+  app.get('/health', async (req, res) => {
+    const stats = authWorker.getTokenStats();
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      stats: stats
+    });
+  });
+
+  return app;
+}
+
+// ============================================
+// Export
+// ============================================
+
+module.exports = {
+  AuthWorker,
+  authWorker,
+  createServer,
+  TOKEN_STORE_PATH
 };
+
+// ============================================
+// Start Server
+// ============================================
+
+if (require.main === module) {
+  console.log('🚀 Auth Worker Started\n');
+  console.log(`📁 Token Store: ${TOKEN_STORE_PATH}`);
+  console.log('📚 Available endpoints:\n');
+
+  try {
+    const app = createServer();
+    const PORT = process.env.PORT || 3000;
+    
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+      console.log(`\n📋 Endpoints:`);
+      console.log(`  - GET  /api/auth/send-otp/:phone`);
+      console.log(`  - POST /api/auth/verify-otp`);
+      console.log(`  - GET  /api/auth/verify-token`);
+      console.log(`  - GET  /api/auth/protected`);
+      console.log(`  - POST /api/auth/logout`);
+      console.log(`  - POST /api/auth/revoke-all/:phone`);
+      console.log(`  - GET  /api/auth/stats`);
+      console.log(`  - GET  /api/auth/tokens`);
+      console.log(`  - GET  /health\n`);
+      
+      // Show initial stats
+      const stats = authWorker.getTokenStats();
+      console.log('📊 Token Statistics:');
+      console.log(`  - Total Tokens: ${stats.totalTokens}`);
+      console.log(`  - Active Tokens: ${stats.activeTokens}`);
+      console.log(`  - Active Sessions: ${stats.activeSessions}`);
+      console.log(`  - Unique Users: ${stats.uniqueUsers}\n`);
+    });
+  } catch (error) {
+    console.log('❌ Failed to start server:', error.message);
+    console.log('Install dependencies: npm install express cors');
+  }
+}
