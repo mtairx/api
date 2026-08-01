@@ -1,106 +1,163 @@
-export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS preflight requests
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS, POST, PUT, DELETE",
-          "Access-Control-Allow-Headers": "*, client-service, auth-key, User-ID, Authorization, source, Device-Type",
-        },
-      });
-    }
+// server.js
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const app = express();
+const port = 3000;
 
-    const url = new URL(request.url);
+// Configuration
+const API_BASE_URL = 'https://rozgarapinew.teachx.in';
+const BEARER_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODU0MTAyNTIsIml2X3ZlciI6OSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.yAYNEfdfdvE4jZXdr4582bkn3P9B4ss0UnjLO0DwiQ8';
 
-    // Only handle /get-video endpoint
-    if (url.pathname !== "/get-video") {
-      return new Response(
-        JSON.stringify({ status: 404, message: "Not Found" }),
-        {
-          status: 404,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-          }
-        }
-      );
-    }
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
 
-    const params = new URLSearchParams(url.search);
-
-    // Validate required parameters
-    if (!params.has('course_id') || !params.has('video_id')) {
-      return new Response(
-        JSON.stringify({ status: 400, message: "Bad Request - Missing course_id or video_id" }),
-        {
-          status: 400,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-          }
-        }
-      );
-    }
-    
-    // Add required parameters
-    params.set('ytflag', '0');
-    params.set('folder_wise_course', '0');
-    params.set('lc_app_api_url', '');
-
-    // FIXED: Added backticks for template literal
-    const targetUrl = `https://rozgarapinew.teachx.in/get/fetchVideoDetailsById?${params.toString()}`;
-
-    // Build headers with environment variables support
-    const headers = new Headers({
-      "accept": "*/*",
-      "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
-      "auth-key": "appxapi",
-      "authorization": env.AUTH_TOKEN || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODUzMzI3NDAsIml2X3ZlciI6NSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.sE0sbhbT2pxyDX6aCBDfv3a0bwW-j9cG2Ev0bqb3wog",
-      "client-service": "Appx",
-      "device-type": "origin",
-      "referer": "https://rojgarwithankit.co.in/",
-      "source": "website",
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-      "user-id": env.USER_ID || "14845556"
-    });
-
+// Endpoint to fetch video details
+app.get('/api/fetch-video', async (req, res) => {
     try {
-      // Make request to the target API
-      const response = await fetch(targetUrl, {
-        method: "GET",
-        headers: headers
-      });
+        const { course_id, video_id } = req.query;
 
-      const data = await response.json();
-
-      // Return the response with CORS headers
-      return new Response(JSON.stringify(data, null, 2), {
-        status: response.status,
-        headers: {
-          "Content-Type": "application/json; charset=UTF-8",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "*"
+        // Validate parameters
+        if (!course_id || !video_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'course_id and video_id are required'
+            });
         }
-      });
+
+        // Construct the target API URL with your base URL
+        const targetApiUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+
+        console.log(`📡 Fetching video details from: ${targetApiUrl}`);
+        console.log(`📚 Course ID: ${course_id}, Video ID: ${video_id}`);
+
+        // Make request to the target API with bearer token
+        const response = await axios.get(targetApiUrl, {
+            headers: {
+                'Authorization': `Bearer ${BEARER_TOKEN}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            timeout: 30000 // 30 seconds timeout
+        });
+
+        console.log('✅ API Response received');
+
+        // Extract video URL from response
+        let videoUrl = null;
+        let videoData = response.data;
+
+        // Try different possible paths for video URL
+        if (response.data) {
+            videoUrl = response.data.video_url || 
+                      response.data.url || 
+                      response.data.data?.video_url ||
+                      response.data.data?.url ||
+                      response.data.videoLink ||
+                      response.data.video?.url ||
+                      response.data.VideoURL ||
+                      response.data.URL;
+        }
+
+        // Send success response
+        res.status(200).json({
+            success: true,
+            data: {
+                video_url: videoUrl,
+                full_response: response.data,
+                course_id: course_id,
+                video_id: video_id,
+                api_url: targetApiUrl
+            }
+        });
+
     } catch (error) {
-      console.error("Error fetching video:", error);
-      
-      return new Response(
-        JSON.stringify({ 
-          status: 500, 
-          message: "Internal Server Error",
-          error: error.message 
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-          }
+        console.error('❌ Error fetching video details:', error.message);
+        
+        // Detailed error handling
+        if (error.response) {
+            console.error('Response status:', error.response.status);
+            console.error('Response data:', error.response.data);
+            
+            res.status(error.response.status).json({
+                success: false,
+                message: 'External API error',
+                status: error.response.status,
+                error: error.response.data
+            });
+        } else if (error.request) {
+            console.error('No response received');
+            res.status(503).json({
+                success: false,
+                message: 'No response from external API. Please check if the API is accessible.',
+                error: error.message
+            });
+        } else {
+            console.error('Request setup error:', error.message);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                error: error.message
+            });
         }
-      );
     }
-  }
-};
+});
+
+// Endpoint to fetch video with POST method
+app.post('/api/fetch-video', async (req, res) => {
+    try {
+        const { course_id, video_id } = req.body;
+
+        if (!course_id || !video_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'course_id and video_id are required in request body'
+            });
+        }
+
+        const targetApiUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+
+        const response = await axios.get(targetApiUrl, {
+            headers: {
+                'Authorization': `Bearer ${BEARER_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 30000
+        });
+
+        let videoUrl = response.data?.video_url || 
+                      response.data?.url || 
+                      response.data?.data?.video_url;
+
+        res.status(200).json({
+            success: true,
+            video_url: videoUrl,
+            data: response.data
+        });
+
+    } catch (error) {
+        console.error('❌ Error:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch video details',
+            error: error.message
+        });
+    }
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.status(200).json({
+        status: 'OK',
+        api_base_url: API_BASE_URL,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.listen(port, () => {
+    console.log(`\n🚀 Server running on http://localhost:${port}`);
+    console.log(`📹 Video fetch endpoint: http://localhost:${port}/api/fetch-video?course_id=YOUR_COURSE_ID&video_id=YOUR_VIDEO_ID`);
+    console.log(`✅ Health check: http://localhost:${port}/api/health`);
+    console.log(`🌐 API Base URL: ${API_BASE_URL}\n`);
+});
