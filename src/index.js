@@ -1,27 +1,16 @@
-// server.js
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const app = express();
-const port = 3000;
+// index.js - Cloudflare Worker
 
 // Configuration
 const API_BASE_URL = 'https://rozgarapinew.teachx.in';
 const BEARER_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjcxMTU0MjciLCJ0aW1lc3RhbXAiOjE3ODU0MTAyNTIsIml2X3ZlciI6OSwic2Vzc2lvbiI6ImV5SjBlWEFpT2lKS1YxUWlMQ0poYkdjaU9pSklVekkxTmlKOS5leUpwWkNJNklqY3hNVFUwTWpjaUxDSmxiV0ZwYkNJNkltdGxjMmh5YVhKdmFHbDBNREkyUUdkdFlXbHNMbU52YlNJc0ltNWhiV1VpT2lKU2IyaHBkQ0lzSW5SbGJtRnVkRlI1Y0dVaU9pSjFjMlZ5SWl3aWRHVnVZVzUwVG1GdFpTSTZJbkp2ZW1kaGNsOWtZaUlzSW5SbGJtRnVkRWxrSWpvaUlpd2laR2x6Y0c5ellXSnNaU0k2Wm1Gc2MyVjkuRU9iR2Y4bm1Pd050eHd4UTc2SnY4WlhUbnZHVUpDeFFjeFBtLTNkT0JuUSJ9.yAYNEfdfdvE4jZXdr4582bkn3P9B4ss0UnjLO0DwiQ8';
 
-// Alternative tokens (if you have multiple)
-const TOKENS = [
-    BEARER_TOKEN,
-    // Add more tokens here if available
-];
-
-// Cache for responses to reduce API calls
-const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+// CORS headers for all responses
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400'
+};
 
 // Helper function to extract video URL from various response formats
 function extractVideoUrl(data) {
@@ -51,429 +40,432 @@ function extractVideoUrl(data) {
         'source_url',
         'sourceUrl',
         'play_url',
-        'playUrl'
+        'playUrl',
+        'result',
+        'response',
+        'link',
+        'src',
+        'source',
+        'href'
     ];
     
-    for (const path of paths) {
-        const parts = path.split('.');
-        let value = data;
-        let found = true;
-        
-        for (const part of parts) {
-            if (value && typeof value === 'object' && part in value) {
-                value = value[part];
-            } else {
-                found = false;
-                break;
+    // If data is a string, try to parse it
+    if (typeof data === 'string') {
+        try {
+            const parsed = JSON.parse(data);
+            return extractVideoUrl(parsed);
+        } catch (e) {
+            // If it's a URL string
+            if (data.startsWith('http')) {
+                return data;
             }
-        }
-        
-        if (found && value && typeof value === 'string' && value.startsWith('http')) {
-            return value;
+            return null;
         }
     }
     
-    // If data is a string and looks like URL
-    if (typeof data === 'string' && data.startsWith('http')) {
-        return data;
-    }
-    
-    // If data has a result or response wrapper
-    if (data.result && typeof data.result === 'string' && data.result.startsWith('http')) {
-        return data.result;
-    }
-    
-    if (data.response && typeof data.response === 'string' && data.response.startsWith('http')) {
-        return data.response;
-    }
-    
-    // Search recursively for any string that looks like a video URL
-    function searchForUrl(obj) {
-        if (!obj || typeof obj !== 'object') return null;
-        
-        for (const key of Object.keys(obj)) {
-            const value = obj[key];
-            if (typeof value === 'string' && value.startsWith('http')) {
-                // Check if it's a video URL
-                const videoExtensions = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', 'video', 'stream'];
-                if (videoExtensions.some(ext => value.toLowerCase().includes(ext))) {
-                    return value;
-                }
-            } else if (typeof value === 'object') {
-                const result = searchForUrl(value);
-                if (result) return result;
-            }
+    // If data is an array, check each item
+    if (Array.isArray(data)) {
+        for (const item of data) {
+            const result = extractVideoUrl(item);
+            if (result) return result;
         }
         return null;
     }
     
-    return searchForUrl(data);
-}
-
-// Multiple fetch strategies
-async function fetchWithRetry(url, options, maxRetries = 3) {
-    let lastError;
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            const response = await axios.get(url, options);
-            return response;
-        } catch (error) {
-            lastError = error;
-            console.log(`Attempt ${attempt + 1} failed: ${error.message}`);
+    // If data is an object, search through it
+    if (typeof data === 'object' && data !== null) {
+        // Check direct paths first
+        for (const path of paths) {
+            const parts = path.split('.');
+            let value = data;
+            let found = true;
             
-            // Wait before retry with exponential backoff
-            if (attempt < maxRetries - 1) {
-                const delay = Math.pow(2, attempt) * 1000;
-                await new Promise(resolve => setTimeout(resolve, delay));
+            for (const part of parts) {
+                if (value && typeof value === 'object' && part in value) {
+                    value = value[part];
+                } else {
+                    found = false;
+                    break;
+                }
+            }
+            
+            if (found && value && typeof value === 'string' && value.startsWith('http')) {
+                // Check if it's a video URL
+                const videoExtensions = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', '.mkv', 'video', 'stream', 'play'];
+                if (videoExtensions.some(ext => value.toLowerCase().includes(ext))) {
+                    return value;
+                }
+            }
+        }
+        
+        // Recursively search all values
+        for (const key of Object.keys(data)) {
+            const value = data[key];
+            if (typeof value === 'object' && value !== null) {
+                const result = extractVideoUrl(value);
+                if (result) return result;
+            } else if (typeof value === 'string' && value.startsWith('http')) {
+                const videoExtensions = ['.mp4', '.m3u8', '.webm', '.avi', '.mov', '.mkv', 'video', 'stream', 'play'];
+                if (videoExtensions.some(ext => value.toLowerCase().includes(ext))) {
+                    return value;
+                }
             }
         }
     }
     
-    throw lastError;
+    return null;
 }
 
-// Endpoint to fetch video details with multiple strategies
-app.get('/api/fetch-video', async (req, res) => {
-    try {
-        const { course_id, video_id, force_refresh } = req.query;
-
-        // Validate parameters
-        if (!course_id || !video_id) {
-            return res.status(400).json({
-                success: false,
-                message: 'course_id and video_id are required'
-            });
+// Helper to create response
+function createResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
         }
+    });
+}
 
-        const cacheKey = `${course_id}_${video_id}`;
-        
-        // Check cache
-        if (!force_refresh && cache.has(cacheKey)) {
-            const cachedData = cache.get(cacheKey);
-            if (Date.now() - cachedData.timestamp < CACHE_DURATION) {
-                console.log('✅ Returning cached data');
-                return res.status(200).json({
-                    success: true,
-                    from_cache: true,
-                    data: cachedData.data
-                });
-            }
-        }
+// Helper for error responses
+function errorResponse(message, status = 400, details = null) {
+    return createResponse({
+        success: false,
+        message: message,
+        error: details,
+        timestamp: new Date().toISOString()
+    }, status);
+}
 
-        console.log(`📡 Fetching video details for course: ${course_id}, video: ${video_id}`);
+// Helper for success responses
+function successResponse(data, meta = {}) {
+    return createResponse({
+        success: true,
+        data: data,
+        ...meta,
+        timestamp: new Date().toISOString()
+    });
+}
 
-        // Strategy 1: Try with bearer token
-        const targetApiUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
-
-        let response;
-        let videoUrl = null;
-        let fullData = null;
-        let usedStrategy = 'default';
-
-        try {
-            // Try with default token
-            const options = {
+// Main fetch function with multiple strategies
+async function fetchWithStrategies(course_id, video_id) {
+    const strategies = [
+        // Strategy 1: Bearer token with all params
+        async () => {
+            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+            const response = await fetch(url, {
                 headers: {
                     'Authorization': `Bearer ${BEARER_TOKEN}`,
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                timeout: 30000
-            };
-
-            response = await fetchWithRetry(targetApiUrl, options);
+                }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const videoUrl = extractVideoUrl(data);
+                return { data, videoUrl, strategy: 'bearer_token' };
+            }
+            throw new Error(`Status: ${response.status}`);
+        },
+        
+        // Strategy 2: No token
+        async () => {
+            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+            const response = await fetch(url, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const videoUrl = extractVideoUrl(data);
+                return { data, videoUrl, strategy: 'no_token' };
+            }
+            throw new Error(`Status: ${response.status}`);
+        },
+        
+        // Strategy 3: Alternative URL structure
+        async () => {
+            const altUrls = [
+                `https://rozgarapinew.teachx.in/api/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
+                `https://rozgarapinew.teachx.in/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
+                `https://api.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`
+            ];
             
-            if (response && response.data) {
-                videoUrl = extractVideoUrl(response.data);
-                fullData = response.data;
-                usedStrategy = 'bearer_token';
+            for (const url of altUrls) {
+                try {
+                    const response = await fetch(url, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        const videoUrl = extractVideoUrl(data);
+                        if (videoUrl) {
+                            return { data, videoUrl, strategy: `alternative_url` };
+                        }
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            throw new Error('All alternative URLs failed');
+        },
+        
+        // Strategy 4: Different parameter combinations
+        async () => {
+            const paramVariations = [
+                `course_id=${course_id}&video_id=${video_id}&ytflag=1`,
+                `course_id=${course_id}&video_id=${video_id}&folder_wise_course=1`,
+                `course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=1`,
+                `course_id=${course_id}&video_id=${video_id}&ytflag=1&folder_wise_course=0`,
+                `course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=1`
+            ];
+            
+            for (const params of paramVariations) {
+                try {
+                    const url = `${API_BASE_URL}/get/fetchVideoDetailsById?${params}`;
+                    const response = await fetch(url, {
+                        headers: {
+                            'Authorization': `Bearer ${BEARER_TOKEN}`,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        const videoUrl = extractVideoUrl(data);
+                        if (videoUrl) {
+                            return { data, videoUrl, strategy: `parameter_variation` };
+                        }
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            throw new Error('All parameter variations failed');
+        },
+        
+        // Strategy 5: POST method
+        async () => {
+            const url = `${API_BASE_URL}/get/fetchVideoDetailsById`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${BEARER_TOKEN}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    course_id: parseInt(course_id),
+                    video_id: parseInt(video_id),
+                    ytflag: 0,
+                    folder_wise_course: 0,
+                    lc_app_api_url: ''
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const videoUrl = extractVideoUrl(data);
+                return { data, videoUrl, strategy: 'post_method' };
+            }
+            throw new Error(`Status: ${response.status}`);
+        },
+        
+        // Strategy 6: Try with different base URLs
+        async () => {
+            const baseUrls = [
+                'https://rozgarapinew.teachx.in',
+                'https://rozgarapi.teachx.in',
+                'https://api.teachx.in'
+            ];
+            
+            for (const baseUrl of baseUrls) {
+                try {
+                    const url = `${baseUrl}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=0&lc_app_api_url=`;
+                    const response = await fetch(url, {
+                        headers: {
+                            'Authorization': `Bearer ${BEARER_TOKEN}`,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        const videoUrl = extractVideoUrl(data);
+                        if (videoUrl) {
+                            return { data, videoUrl, strategy: `different_base_url` };
+                        }
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            throw new Error('All base URLs failed');
+        },
+        
+        // Strategy 7: Try without any parameters (just raw)
+        async () => {
+            const url = `${API_BASE_URL}/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`;
+            const response = await fetch(url, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const videoUrl = extractVideoUrl(data);
+                return { data, videoUrl, strategy: 'minimal_params' };
+            }
+            throw new Error(`Status: ${response.status}`);
+        }
+    ];
+    
+    // Try each strategy
+    for (const strategy of strategies) {
+        try {
+            const result = await strategy();
+            if (result.videoUrl) {
+                return {
+                    ...result,
+                    success: true
+                };
             }
         } catch (error) {
-            console.log('Strategy 1 (Bearer Token) failed:', error.message);
-            
-            // Strategy 2: Try without token
+            console.log(`Strategy failed: ${error.message}`);
+            continue;
+        }
+    }
+    
+    return {
+        success: false,
+        message: 'All strategies failed'
+    };
+}
+
+// Cloudflare Worker handler
+export default {
+    async fetch(request, env, ctx) {
+        const url = new URL(request.url);
+        const path = url.pathname;
+        const method = request.method;
+        
+        // Handle CORS preflight
+        if (method === 'OPTIONS') {
+            return new Response(null, {
+                status: 204,
+                headers: corsHeaders
+            });
+        }
+        
+        // Health check
+        if (path === '/api/health' && method === 'GET') {
+            return successResponse({
+                status: 'OK',
+                api_base_url: API_BASE_URL,
+                version: '1.0.0',
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        // Fetch video endpoint
+        if (path === '/api/fetch-video') {
             try {
-                const options = {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    },
-                    timeout: 30000
-                };
+                let course_id, video_id;
                 
-                response = await fetchWithRetry(targetApiUrl, options);
-                
-                if (response && response.data) {
-                    videoUrl = extractVideoUrl(response.data);
-                    fullData = response.data;
-                    usedStrategy = 'no_token';
+                if (method === 'GET') {
+                    course_id = url.searchParams.get('course_id');
+                    video_id = url.searchParams.get('video_id');
+                } else if (method === 'POST') {
+                    const body = await request.json().catch(() => ({}));
+                    course_id = body.course_id;
+                    video_id = body.video_id;
+                } else {
+                    return errorResponse('Method not allowed', 405);
                 }
-            } catch (error2) {
-                console.log('Strategy 2 (No Token) failed:', error2.message);
                 
-                // Strategy 3: Try alternative base URL
-                try {
-                    const altUrls = [
-                        `https://rozgarapinew.teachx.in/api/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
-                        `https://rozgarapinew.teachx.in/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`,
-                        `https://api.teachx.in/get/fetchVideoDetailsById?course_id=${course_id}&video_id=${video_id}`
-                    ];
-                    
-                    for (const altUrl of altUrls) {
-                        try {
-                            const options = {
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json',
-                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                                },
-                                timeout: 30000
-                            };
-                            
-                            const altResponse = await axios.get(altUrl, options);
-                            if (altResponse && altResponse.data) {
-                                const altVideoUrl = extractVideoUrl(altResponse.data);
-                                if (altVideoUrl) {
-                                    videoUrl = altVideoUrl;
-                                    fullData = altResponse.data;
-                                    usedStrategy = `alternative_url: ${altUrl}`;
-                                    break;
-                                }
-                            }
-                        } catch (e) {
-                            console.log(`Alternative URL failed: ${altUrl}`);
-                        }
-                    }
-                } catch (error3) {
-                    console.log('Strategy 3 (Alternative URLs) failed:', error3.message);
-                    
-                    // Strategy 4: Try with different parameters
-                    try {
-                        const paramVariations = [
-                            `course_id=${course_id}&video_id=${video_id}&ytflag=1`,
-                            `course_id=${course_id}&video_id=${video_id}&folder_wise_course=1`,
-                            `course_id=${course_id}&video_id=${video_id}&ytflag=0&folder_wise_course=1`,
-                            `course_id=${course_id}&video_id=${video_id}&ytflag=1&folder_wise_course=0`
-                        ];
-                        
-                        for (const params of paramVariations) {
-                            try {
-                                const variationUrl = `${API_BASE_URL}/get/fetchVideoDetailsById?${params}&lc_app_api_url=`;
-                                const options = {
-                                    headers: {
-                                        'Authorization': `Bearer ${BEARER_TOKEN}`,
-                                        'Content-Type': 'application/json',
-                                        'Accept': 'application/json'
-                                    },
-                                    timeout: 30000
-                                };
-                                
-                                const varResponse = await axios.get(variationUrl, options);
-                                if (varResponse && varResponse.data) {
-                                    const varVideoUrl = extractVideoUrl(varResponse.data);
-                                    if (varVideoUrl) {
-                                        videoUrl = varVideoUrl;
-                                        fullData = varResponse.data;
-                                        usedStrategy = `parameter_variation: ${params}`;
-                                        break;
-                                    }
-                                }
-                            } catch (e) {
-                                console.log(`Parameter variation failed: ${params}`);
-                            }
-                        }
-                    } catch (error4) {
-                        console.log('Strategy 4 (Parameter Variations) failed:', error4.message);
-                        
-                        // Strategy 5: Try POST method
-                        try {
-                            const postOptions = {
-                                headers: {
-                                    'Authorization': `Bearer ${BEARER_TOKEN}`,
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json'
-                                },
-                                timeout: 30000,
-                                data: {
-                                    course_id: parseInt(course_id),
-                                    video_id: parseInt(video_id),
-                                    ytflag: 0,
-                                    folder_wise_course: 0
-                                }
-                            };
-                            
-                            const postResponse = await axios.post(`${API_BASE_URL}/get/fetchVideoDetailsById`, postOptions.data, {
-                                headers: postOptions.headers,
-                                timeout: postOptions.timeout
-                            });
-                            
-                            if (postResponse && postResponse.data) {
-                                videoUrl = extractVideoUrl(postResponse.data);
-                                fullData = postResponse.data;
-                                usedStrategy = 'post_method';
-                            }
-                        } catch (error5) {
-                            console.log('Strategy 5 (POST Method) failed:', error5.message);
-                        }
-                    }
+                // Validate parameters
+                if (!course_id || !video_id) {
+                    return errorResponse('course_id and video_id are required', 400);
                 }
+                
+                console.log(`📡 Fetching video: course=${course_id}, video=${video_id}`);
+                
+                // Use cached data if available
+                const cacheKey = `video_${course_id}_${video_id}`;
+                const cached = await env.VIDEO_CACHE?.get(cacheKey, 'json');
+                
+                if (cached && !url.searchParams.has('force_refresh')) {
+                    console.log('✅ Returning cached data');
+                    return successResponse(cached, { from_cache: true });
+                }
+                
+                // Fetch with multiple strategies
+                const result = await fetchWithStrategies(course_id, video_id);
+                
+                if (result.success && result.videoUrl) {
+                    const responseData = {
+                        video_url: result.videoUrl,
+                        full_response: result.data,
+                        course_id: course_id,
+                        video_id: video_id,
+                        used_strategy: result.strategy,
+                        from_cache: false
+                    };
+                    
+                    // Cache the result (if KV binding exists)
+                    if (env.VIDEO_CACHE) {
+                        await env.VIDEO_CACHE.put(cacheKey, JSON.stringify(responseData), {
+                            expirationTtl: 300 // 5 minutes
+                        });
+                    }
+                    
+                    return successResponse(responseData);
+                } else if (result.data) {
+                    // Got data but no video URL
+                    return successResponse({
+                        message: 'No direct video URL found, but data received',
+                        full_response: result.data,
+                        course_id: course_id,
+                        video_id: video_id,
+                        used_strategy: result.strategy || 'unknown'
+                    });
+                } else {
+                    // All strategies failed
+                    return errorResponse('Could not fetch video data with any strategy', 404, {
+                        course_id,
+                        video_id,
+                        attempted_strategies: ['bearer_token', 'no_token', 'alternative_urls', 'parameter_variations', 'post_method', 'different_base_urls', 'minimal_params']
+                    });
+                }
+                
+            } catch (error) {
+                console.error('❌ Error:', error);
+                return errorResponse('Internal server error', 500, error.message);
             }
         }
-
-        // If we found a video URL, cache and return
-        if (videoUrl) {
-            const result = {
-                video_url: videoUrl,
-                full_response: fullData,
-                course_id: course_id,
-                video_id: video_id,
-                used_strategy: usedStrategy,
-                timestamp: new Date().toISOString()
-            };
-
-            // Cache the result
-            cache.set(cacheKey, {
-                data: result,
-                timestamp: Date.now()
-            });
-
-            console.log(`✅ Successfully fetched video URL using strategy: ${usedStrategy}`);
-            
-            return res.status(200).json({
-                success: true,
-                data: result,
-                from_cache: false
-            });
-        }
-
-        // If no video URL found but we have data, try to extract any useful info
-        if (fullData) {
-            return res.status(200).json({
-                success: true,
-                data: {
-                    message: 'No direct video URL found, but data received',
-                    full_response: fullData,
-                    course_id: course_id,
-                    video_id: video_id,
-                    used_strategy: usedStrategy || 'unknown'
-                }
-            });
-        }
-
-        // All strategies failed
-        return res.status(404).json({
-            success: false,
-            message: 'Could not fetch video data with any strategy',
-            course_id: course_id,
-            video_id: video_id,
-            attempted_strategies: ['bearer_token', 'no_token', 'alternative_urls', 'parameter_variations', 'post_method']
-        });
-
-    } catch (error) {
-        console.error('❌ Error in main fetch:', error.message);
         
-        return res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Endpoint to fetch video with POST method
-app.post('/api/fetch-video', async (req, res) => {
-    try {
-        const { course_id, video_id } = req.body;
-
-        if (!course_id || !video_id) {
-            return res.status(400).json({
-                success: false,
-                message: 'course_id and video_id are required in request body'
+        // Clear cache
+        if (path === '/api/clear-cache' && method === 'POST') {
+            if (env.VIDEO_CACHE) {
+                // Can't clear all keys in Workers KV without a list
+                return successResponse({
+                    message: 'Cache cleared for specific keys. Use ?key=video_xxx to clear specific.'
+                });
+            }
+            return successResponse({
+                message: 'No cache configured'
             });
         }
-
-        // Reuse the GET logic
-        const queryRes = await new Promise((resolve, reject) => {
-            req.query = { course_id, video_id };
-            app.handle(req, res, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
-
-        // If it reaches here, the GET handler already sent response
-        // We need to handle this differently - let's just call the fetch logic directly
-        const response = await axios.get(`${API_BASE_URL}/get/fetchVideoDetailsById`, {
-            params: {
-                course_id,
-                video_id,
-                ytflag: 0,
-                folder_wise_course: 0,
-                lc_app_api_url: ''
-            },
-            headers: {
-                'Authorization': `Bearer ${BEARER_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 30000
-        });
-
-        const videoUrl = extractVideoUrl(response.data);
-
-        res.status(200).json({
-            success: true,
-            video_url: videoUrl,
-            data: response.data
-        });
-
-    } catch (error) {
-        console.error('❌ Error in POST fetch:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch video details',
-            error: error.message
-        });
+        
+        // 404 for other paths
+        return errorResponse('Endpoint not found', 404);
     }
-});
-
-// Endpoint to clear cache
-app.post('/api/clear-cache', (req, res) => {
-    cache.clear();
-    res.status(200).json({
-        success: true,
-        message: 'Cache cleared successfully'
-    });
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.status(200).json({
-        status: 'OK',
-        api_base_url: API_BASE_URL,
-        cache_size: cache.size,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: err.message
-    });
-});
-
-app.listen(port, () => {
-    console.log(`\n🚀 Server running on http://localhost:${port}`);
-    console.log(`📹 Video fetch endpoint: http://localhost:${port}/api/fetch-video?course_id=YOUR_COURSE_ID&video_id=YOUR_VIDEO_ID`);
-    console.log(`✅ Health check: http://localhost:${port}/api/health`);
-    console.log(`🗑️ Clear cache: http://localhost:${port}/api/clear-cache`);
-    console.log(`🌐 API Base URL: ${API_BASE_URL}`);
-    console.log(`📦 Cache duration: ${CACHE_DURATION/1000} seconds\n`);
-});
+};
