@@ -1,130 +1,81 @@
-// index.js
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const app = express();
-const port = 3000;
+require("dotenv").config();
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
 
-// Middleware
+const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Constants
-const API_BASE = "https://rozgarapinew.teachx.in/get";
-const VIDEO_API = "https://rwa.video-edustream.indevs.in";
-const HEADERS = {
-  "Client-Service": "Appx",
-  "Auth-Key": "appxapi",
-  "source": "website"
-};
+const BASE_URL = "https://rozgarapinew.teachx.in/get/fetchVideoDetailsById";
 
-// Store tokens in memory (use Redis/DB for production)
-const userTokens = {};
-
-// Generate device ID
-function generateDeviceId() {
-  return "dev_" + Math.random().toString(36).substr(2, 10);
-}
-
-// 📲 Send OTP
-app.post('/send-otp', async (req, res) => {
-  try {
-    const { phone } = req.body;
-    const response = await axios.get(`${API_BASE}/sendotp?phone=${phone}`, {
-      headers: HEADERS
-    });
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// 🔹 Root route
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Video API running"
+  });
 });
 
-// ✅ Verify OTP
-app.post('/verify-otp', async (req, res) => {
+// 🔹 Main API route
+app.get("/api/video", async (req, res) => {
   try {
-    const { phone, otp } = req.body;
-    const deviceId = generateDeviceId();
-    
-    const response = await axios.get(
-      `${API_BASE}/otpverify?useremail=${phone}&otp=${otp}&device_id=${deviceId}`,
-      { headers: HEADERS }
-    );
-    
-    if (response.data.user && response.data.user.token) {
-      const token = response.data.user.token;
-      userTokens[phone] = token;
-      
-      // Return token in both places to match original system
-      res.json({
-        token: token,
-        message: "Login successful"
+    // Token from header OR query
+    const token =
+      req.headers.authorization?.split(" ")[1] || req.query.token;
+
+    const { course_id, video_id } = req.query;
+
+    // Validation
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Token missing"
       });
-    } else {
-      res.status(401).json({ error: "Invalid OTP" });
     }
+
+    if (!course_id || !video_id) {
+      return res.status(400).json({
+        success: false,
+        error: "course_id and video_id required"
+      });
+    }
+
+    // 🔹 Request to original API
+    const response = await axios.get(BASE_URL, {
+      params: {
+        course_id: course_id,
+        video_id: video_id,
+        ytflag: 0,
+        folder_wise_course: 0,
+        lc_app_api_url: ""
+      },
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "Origin": "https://teachx.in",
+        "Referer": "https://teachx.in/"
+      },
+      timeout: 15000
+    });
+
+    // Send response
+    res.json({
+      success: true,
+      data: response.data
+    });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
   }
 });
 
-// 🎥 Fetch Video URL with all required parameters
-app.get('/fetch-video-url', async (req, res) => {
-  try {
-    const { phone, courseId, videoId } = req.query;
-    
-    if (!userTokens[phone]) {
-      return res.status(401).json({ error: "Not logged in" });
-    }
-    
-    const token = userTokens[phone];
-    
-    // Use all required parameters including device_id and other headers
-    const response = await axios.get(
-      `${VIDEO_API}/?endpoint=video-details&token=${token}&userid=517077&course_id=${courseId}&video_id=${videoId}&device_id=${generateDeviceId()}`,
-      { 
-        headers: {
-          ...HEADERS,
-          "Authorization": `Bearer ${token}`,
-          "Accept": "application/json",
-          "Content-Type": "application/json"
-        }
-      }
-    );
-    
-    // Extract video URL from response
-    const videoUrl = response.data?.video_url || response.data?.url || response.data?.videoLink;
-    
-    if (videoUrl) {
-      res.json({ video_url: videoUrl });
-    } else {
-      res.status(404).json({ error: "Video URL not found" });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🔁 Token Refresh Endpoint
-app.post('/refresh-token', async (req, res) => {
-  try {
-    const { phone } = req.body;
-    
-    if (!userTokens[phone]) {
-      return res.status(401).json({ error: "No active session" });
-    }
-    
-    // Simulate token refresh (replace with actual refresh API)
-    const newToken = userTokens[phone]; // In real implementation, get new token from server
-    
-    // Update stored token
-    userTokens[phone] = newToken;
-    
-    res.json({ new_token: newToken });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+// 🔹 Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
