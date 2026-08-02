@@ -1,17 +1,20 @@
 {
-  "name": "otp-login-api",
+  "name": "video-fetch-api",
   "version": "1.0.0",
-  "description": "OTP login API with bearer token",
-  "main": "worker.js",
+  "description": "Proxy API to fetch video details using JWT token",
+  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node worker.js",
-    "dev": "nodemon worker.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
+  "keywords": ["api", "video", "proxy", "jwt"],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   }
 }
